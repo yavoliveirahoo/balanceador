@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#0f1115">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>Balanceador</title>
 <style>
@@ -58,6 +58,9 @@ select{width:100%;background:#0f1115;color:var(--tx);border:1px solid var(--line
 .alerta{color:#fbbf24;font-size:14px;margin:10px 0 0}
 .tabs{overflow-x:auto}
 .tabs button{font-size:14px;padding:10px 8px;white-space:nowrap;flex:1 0 auto}
+.ico{display:inline-flex;align-items:center;justify-content:center;border-radius:6px;object-fit:cover;color:#fff;font-weight:700;vertical-align:middle;margin-right:8px;flex:none;letter-spacing:0}
+.icorow{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap}.icorow .ico{margin-right:4px}
+.mini{background:var(--card);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font:inherit;font-size:13px;cursor:pointer}
 .rel{white-space:pre-wrap;font:13px/1.5 ui-monospace,Menlo,Consolas,monospace;background:#0f1115;border:1px solid var(--line);border-radius:10px;padding:12px;margin:12px 0;overflow-x:auto}
 #extras .btns{flex-wrap:wrap}
 @media print{
@@ -184,6 +187,7 @@ function desenharContas(){
       <h2>Conta ${i+1}</h2>
       <label for="n${i}">Nome do banco</label>
       <input id="n${i}" value="${c.nome.replace(/"/g,'&quot;')}" maxlength="30">
+      <div class="icorow">${ico(c,40)}<button class="mini" id="iu${i}">Trocar ícone</button>${c.icone?`<button class="mini" id="ir${i}">Voltar ao padrão</button>`:''}<input type="file" id="if${i}" accept="image/*" hidden></div>
       <div class="row">
         <div>
           <label for="s${i}">Saldo atual (CA$)</label>
@@ -201,6 +205,9 @@ function desenharContas(){
       c.nome = e.target.value.trim() || (i===0 ? 'RBC' : 'EQ Bank');
       e.target.value = c.nome; salvar();
     });
+    d.querySelector('#iu'+i).onclick=()=>d.querySelector('#if'+i).click();
+    d.querySelector('#if'+i).onchange=e=>{ const f=e.target.files[0]; if(f) lerIcone(f,u=>{ if(u){ c.icone=u; salvar(); desenharContas(); } }); };
+    const ir=d.querySelector('#ir'+i); if(ir) ir.onclick=()=>{ delete c.icone; salvar(); desenharContas(); };
     d.querySelector('#s'+i).addEventListener('change', e=>{
       c.saldo = paraNumero(e.target.value); marcarConferido();
       e.target.value = paraTexto(c.saldo); salvar();
@@ -232,6 +239,25 @@ let contaSel = 0, editando = null, apagar = null;
 const uid = ()=>Math.random().toString(36).slice(2,9);
 const esc = s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const cur = n=>'CA$ '+paraTexto(n);
+/* Ícone do banco: imagem enviada por você (c.icone) ou um selo com as iniciais. */
+const COR_PADRAO = {rbc:'#1d4ed8', eq:'#7c3aed'};
+function ico(c,t=22){
+  const st=`width:${t}px;height:${t}px;font-size:${Math.round(t*.42)}px`;
+  return c.icone ? `<img class="ico" alt="" src="${c.icone}" style="${st}">`
+    : `<span class="ico" style="${st};background:${COR_PADRAO[c.id]||'#475569'}">${esc(c.nome.trim().slice(0,2).toUpperCase())}</span>`;
+}
+/* Recorta o centro da imagem em quadrado e reduz para 96x96 (fica leve no localStorage e no backup). */
+function lerIcone(file,cb){
+  const img=new Image(), url=URL.createObjectURL(file);
+  img.onload=()=>{
+    const t=96, cv=document.createElement('canvas'); cv.width=cv.height=t;
+    const m=Math.min(img.width,img.height);
+    cv.getContext('2d').drawImage(img,(img.width-m)/2,(img.height-m)/2,m,m,0,0,t,t);
+    URL.revokeObjectURL(url); cb(cv.toDataURL('image/png'));
+  };
+  img.onerror=()=>{ URL.revokeObjectURL(url); cb(null); };
+  img.src=url;
+}
 const dataBR = iso=>iso.split('-').reverse().join('/');
 function hoje(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 
@@ -259,7 +285,7 @@ function desenharLanc(){
   const rec = minhas.filter(x=>x.freq!=='once').sort((a,b)=>a.desc.localeCompare(b.desc));
   const avu = minhas.filter(x=>x.freq==='once').sort((a,b)=>b.inicio.localeCompare(a.inicio));
   box.innerHTML = `
-  <div class="seg">${estado.contas.map((x,i)=>`<button data-c="${i}" class="${i===contaSel?'on':''}">${esc(x.nome)}</button>`).join('')}</div>
+  <div class="seg">${estado.contas.map((x,i)=>`<button data-c="${i}" class="${i===contaSel?'on':''}">${ico(x,20)}${esc(x.nome)}</button>`).join('')}</div>
   <div class="card"><h2>${e?'Editar lançamento':'Novo lançamento'} · ${esc(c.nome)}</h2>
     <div class="row">
       <div><label>Tipo</label><select id="ft"><option value="receita">Receita (+)</option><option value="despesa">Despesa (−)</option></select></div>
@@ -444,7 +470,7 @@ function desenharInicio(){
     const p=projecaoMes(c), st=statusDe(p.proj,c.colchao), [rot,cor]=ST[st];
     const pct = c.colchao>0 ? Math.max(0,Math.min(100,p.proj/c.colchao*100)) : (p.proj>=0?100:0);
     const dif = p.proj>=c.colchao ? `sobram ${cur(p.proj-c.colchao)} acima do colchão` : `faltam ${cur(c.colchao-p.proj)} para o colchão`;
-    return `<div class="card"><h2>${esc(c.nome)}<span class="chip" style="color:${cor}">${rot}</span></h2>
+    return `<div class="card"><h2>${ico(c,22)}${esc(c.nome)}<span class="chip" style="color:${cor}">${rot}</span></h2>
       <div class="row">
         <div><div class="k">Saldo atual</div><div class="big">${cur(c.saldo)}</div></div>
         <div><div class="k">Fim do mês</div><div class="big" style="color:${cor}">${cur(p.proj)}</div></div>
@@ -504,7 +530,7 @@ function cardBalanco(){
   const a=estado.contas[s.de], b=estado.contas[s.para];
   if(estado.dispensado===s.chave) return `<div class="card"><div class="hint">Sugestão de ${curv(s.valor)} de ${esc(a.nome)} para ${esc(b.nome)} dispensada. <button class="lk" id="bd">Mostrar de novo</button></div></div>`;
   return `<div class="card hl"><h2>Sugestão de transferência</h2>
-    <p class="msg">Ei, você precisa tirar ${curv(s.valor)} da conta ${esc(a.nome)} para a conta ${esc(b.nome)}${s.ate===+hoje().slice(8)?' hoje':' antes do dia '+s.ate}.</p>
+    <p class="msg">Ei, você precisa tirar ${curv(s.valor)} da conta ${ico(a,20)}${esc(a.nome)} para a conta ${ico(b,20)}${esc(b.nome)}${s.ate===+hoje().slice(8)?' hoje':' antes do dia '+s.ate}.</p>
     <div class="hint">${s.resta>0 ? `Mesmo assim, ${esc(b.nome)} ainda ficaria ${cur(s.resta)} abaixo do colchão no pior dia.` : 'Assim as duas contas ficam no colchão ou acima o mês todo.'}</div>
     <div class="btns"><button class="pri" id="bf">Marcar como feita</button></div></div>`;
 }
@@ -517,7 +543,7 @@ function cardResumo(){
     <div class="hint">Ainda falta entrar +${cur(r.faltaRec)} e sair −${cur(r.faltaDesp)} (contando hoje). Balanços entre contas não entram nas somas.</div></div>`;
 }
 function cardAtalhos(){
-  return `<div class="card"><h2>Calendários do mês</h2><div class="btns">${estado.contas.map((c,i)=>`<button data-cal="${i}">📅 ${esc(c.nome)}</button>`).join('')}</div></div>`;
+  return `<div class="card"><h2>Calendários do mês</h2><div class="btns">${estado.contas.map((c,i)=>`<button data-cal="${i}">${ico(c,20)}${esc(c.nome)}</button>`).join('')}</div></div>`;
 }
 function ligarAtalhos(){
   document.querySelectorAll('[data-cal]').forEach(b=>b.onclick=()=>{
@@ -540,7 +566,7 @@ function ligarBalanco(){
 function fecharModal(){const m=document.getElementById('modal');m.hidden=true;m.innerHTML='';}
 function dialogoBalanco(s){
   const m=document.getElementById('modal'), a=estado.contas[s.de], b=estado.contas[s.para];
-  m.innerHTML=`<div class="box"><p class="q">Posso enviar <b>${curv(s.valor)}</b> do ${esc(curto(a))} para o ${esc(curto(b))}?</p>
+  m.innerHTML=`<div class="box"><p class="q">Posso enviar <b>${curv(s.valor)}</b> do ${ico(a,20)}${esc(curto(a))} para o ${ico(b,20)}${esc(curto(b))}?</p>
     <div id="cw" hidden><label for="cv">Quanto você quer enviar? (CA$)</label><input id="cv" inputmode="decimal" placeholder="0,00"><div class="hint" id="ce" style="color:#f87171"></div></div>
     <div class="btns"><button class="pri" id="bs">SIM</button><button id="bn">NÃO</button><button id="bc">CUSTOM</button></div></div>`;
   m.hidden=false;
@@ -585,7 +611,7 @@ function desenharCal(){
   const dias=calendarioMes(c,calY,calM);
   const pad=new Date(Date.UTC(calY,calM-1,1)).getUTCDay();
   box.innerHTML=`
-    <div class="seg">${estado.contas.map((x,i)=>`<button data-cc="${i}" class="${i===calConta?'on':''}">${esc(x.nome)}</button>`).join('')}</div>
+    <div class="seg">${estado.contas.map((x,i)=>`<button data-cc="${i}" class="${i===calConta?'on':''}">${ico(x,20)}${esc(x.nome)}</button>`).join('')}</div>
     <div class="nav"><button id="cp" aria-label="Mês anterior">‹</button><b>${MESES[calM-1]} de ${calY}</b><button id="cn" aria-label="Próximo mês">›</button></div>
     <div class="cal">${DSEM.map(d=>`<div class="sem">${d}</div>`).join('')}${'<div></div>'.repeat(pad)}${dias.map(celulaCal).join('')}</div>
     <div class="hint" style="margin:8px 0 14px">Cinza = realizado · normal = projeção · vermelho = abaixo do colchão · amarelo = Balanço. O número de baixo de cada dia é o saldo dele.</div>
@@ -755,6 +781,9 @@ function desenharExtras(){
     <div class="btns"><button class="pri" id="bx">Exportar backup</button><button id="bi">Importar backup</button></div>
     <input type="file" id="bf2" accept="application/json,.json" hidden>
     <div class="hint" id="bmsg">O arquivo fica no seu aparelho. Nada é enviado a servidor nenhum.</div></div>
+  <div class="card"><h2>Instalação no celular</h2>
+    <div class="btns"><button class="pri" id="vi">Verificar instalação</button></div>
+    <div id="vsaida"></div></div>
   <div class="card" id="relcard"><h2>Relatório do mês</h2>
     <div class="btns"><button class="pri" id="rg">Gerar relatório</button></div>
     <div id="rbox" hidden><div class="rel" id="rtxt"></div>
@@ -780,8 +809,22 @@ function desenharExtras(){
   q('#rs').onclick=()=>navigator.share({title:'Balanceador — relatório',text:txt}).catch(()=>{});
   q('#rt').onclick=()=>baixarArquivo('balanceador-relatorio-'+hoje()+'.txt',txt,'text/plain');
   q('#rp').onclick=()=>{ document.body.classList.add('imp'); window.print(); };
+  q('#vi').onclick=()=>verificarInstalacao(q('#vsaida'));
 }
 addEventListener('afterprint',()=>document.body.classList.remove('imp'));
+
+/* Confere se os arquivos do app estão no GitHub e se o app está instalado (sem precisar de DevTools). */
+async function verificarInstalacao(saida){
+  saida.innerHTML='<div class="hint">Verificando…</div>';
+  const existe=async u=>{ try{ return (await fetch(u,{cache:'no-store'})).ok; }catch(e){ return false; } };
+  const itens=[];
+  for(const f of ['manifest.webmanifest','sw.js','icon-192.png','icon-512.png','icon-maskable-512.png','icon-monochrome-512.png']) itens.push([f, await existe(f)]);
+  let reg=null; try{ reg=await navigator.serviceWorker.getRegistration(); }catch(e){}
+  itens.push(['Service worker registrado (offline)', !!reg]);
+  itens.push(['Aberto como app instalado', matchMedia('(display-mode: standalone)').matches]);
+  saida.innerHTML=itens.map(([n,o])=>`<div class="kv"><span>${esc(n)}</span><b style="color:${o?'var(--ok)':'#f87171'}">${o?'✔':'✖'}</b></div>`).join('')
+    +'<div class="hint">✖ em arquivo = não foi enviado ao GitHub ou o nome está diferente. "Aberto como app instalado" só fica ✔ quando você abre pelo ícone da tela inicial.</div>';
+}
 
 /* ========== ABAS ========== */
 const TELAS = {inicio:desenharInicio, contas:desenharContas, lanc:desenharLanc, cal:desenharCal, extras:desenharExtras};
