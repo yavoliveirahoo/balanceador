@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Balanceador</title>
+<style>
+:root{--bg:#0f1115;--card:#181b22;--line:#262a34;--tx:#e8eaf0;--mut:#8b91a1;--ok:#34d399;--acc:#60a5fa;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:640px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:22px;margin:0 0 4px}
+.sub{color:var(--mut);margin:0 0 20px;font-size:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+.card h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--acc);margin:0 0 12px}
+label{display:block;font-size:13px;color:var(--mut);margin:10px 0 4px}
+input{width:100%;background:#0f1115;color:var(--tx);border:1px solid var(--line);border-radius:10px;padding:11px 12px;font:inherit}
+input:focus{outline:2px solid var(--acc);border-color:transparent}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.hint{font-size:12px;color:var(--mut);margin-top:4px}
+.priv{font-size:12px;color:var(--mut);text-align:center;margin-top:18px}
+#toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--card);border:1px solid var(--ok);color:var(--ok);padding:8px 14px;border-radius:20px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none}
+#toast.on{opacity:1}
+[hidden]{display:none!important}
+select{width:100%;background:#0f1115;color:var(--tx);border:1px solid var(--line);border-radius:10px;padding:11px 12px;font:inherit}
+.tabs,.seg{display:flex;gap:6px;margin-bottom:14px}
+.tabs button,.seg button{flex:1;background:var(--card);color:var(--mut);border:1px solid var(--line);border-radius:10px;padding:10px;font:inherit;cursor:pointer}
+.tabs button.on,.seg button.on{color:var(--tx);border-color:var(--acc)}
+.btns{display:flex;gap:8px;margin-top:14px}
+.btns button{flex:1;background:var(--card);color:var(--tx);border:1px solid var(--line);border-radius:10px;padding:11px;font:inherit;cursor:pointer}
+.btns button.pri{background:var(--acc);color:#0f1115;border-color:var(--acc);font-weight:600}
+.ls{list-style:none;margin:0;padding:0}
+.ls li{display:flex;align-items:center;gap:8px;padding:10px 0;border-top:1px solid var(--line)}
+.ls li:first-child{border-top:0}
+.ls .d{flex:1;min-width:0;display:flex;flex-direction:column}
+.ls .d span{font-size:12px;color:var(--mut)}
+.ls .v{font-weight:600;white-space:nowrap}
+.v.receita{color:var(--ok)}.v.despesa{color:#f87171}
+.ls li button{background:none;border:0;cursor:pointer;font-size:16px;padding:4px}
+#fe{color:#f87171}
+.conf{color:#f87171;font-size:12px}
+.chip{font-size:11px;font-weight:600;border:1px solid;border-radius:20px;padding:1px 8px;margin-left:8px;text-transform:none;letter-spacing:0}
+.k{font-size:12px;color:var(--mut)}.big{font-size:20px;font-weight:700}
+.bar{height:8px;background:#0f1115;border:1px solid var(--line);border-radius:6px;overflow:hidden;margin:12px 0 6px}
+.bar i{display:block;height:100%}
+.card.hl{border-color:var(--acc)}.card.warn{border-color:#fbbf24}.card.good{border-color:var(--ok)}
+.msg{font-size:17px;font-weight:600;margin:0 0 6px}
+.tl{display:flex;flex-wrap:wrap;gap:4px;margin-top:10px}
+.dia{width:30px;height:30px;border-radius:7px;border:1px solid var(--line);background:#0f1115;color:var(--mut);font-size:12px;position:relative;cursor:pointer;padding:0}
+.dia.crit{background:#3b1d1d;border-color:#f87171;color:#fca5a5}
+.dia.hoje{outline:2px solid var(--acc)}
+.dia i{position:absolute;bottom:3px;left:50%;width:4px;height:4px;margin-left:-2px;border-radius:50%;background:var(--acc)}
+.alerta{color:#fbbf24;font-size:14px;margin:10px 0 0}
+.tabs{overflow-x:auto}
+.tabs button{font-size:14px;padding:10px 8px;white-space:nowrap;flex:1 0 auto}
+.rel{white-space:pre-wrap;font:13px/1.5 ui-monospace,Menlo,Consolas,monospace;background:#0f1115;border:1px solid var(--line);border-radius:10px;padding:12px;margin:12px 0;overflow-x:auto}
+#extras .btns{flex-wrap:wrap}
+@media print{
+ body.imp .tabs,body.imp #toast,body.imp #modal,body.imp main>*:not(#extras){display:none!important}
+ body.imp #extras>*:not(#relcard){display:none!important}
+ body.imp #relcard h2,body.imp #relcard .btns,body.imp #relcard .hint{display:none!important}
+ body.imp,body.imp .card,body.imp .rel{background:#fff!important;color:#000!important;border:0!important}
+}
+.nav{display:flex;align-items:center;justify-content:space-between;margin:8px 0;text-transform:capitalize}
+.nav button{background:var(--card);color:var(--tx);border:1px solid var(--line);border-radius:10px;width:44px;height:40px;font-size:20px;cursor:pointer}
+.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px}
+.sem{text-align:center;font-size:11px;color:var(--mut)}
+.cd{min-height:78px;border:1px solid var(--line);border-radius:8px;background:var(--card);padding:3px;font:inherit;font-size:10px;cursor:pointer;display:flex;flex-direction:column;gap:2px;overflow:hidden;text-align:left;color:var(--tx)}
+.cd .n{font-weight:700;font-size:11px}
+.cd.past{opacity:.55}.cd.crit{background:#3b1d1d;border-color:#f87171}.cd.hoje{outline:2px solid var(--acc)}.cd.sel{border-color:var(--acc);background:#1d2636}
+.cd .sd{margin-top:auto;color:var(--mut)}
+.ch{border-radius:4px;padding:0 3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:10px}
+.ch.r{background:#12372b;color:#6ee7b7}.ch.d{background:#3b1d1d;color:#fca5a5}.ch.b{background:#3a2f0e;color:#fcd34d;border:1px solid #fbbf24}
+.saldo-dia{margin:12px 0 4px;padding-top:10px;border-top:1px solid var(--line)}
+.ls li.opx{border-top:0;padding-top:0}
+.kv{display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;border-top:1px solid var(--line)}
+.kv:first-of-type{border-top:0}
+.opc{display:flex;gap:6px;flex-wrap:wrap}
+.ls .opc button{background:var(--card);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font:inherit;font-size:13px;cursor:pointer}
+.ls .opc button.perigo{border-color:#f87171;color:#fca5a5}
+.lk{background:none;border:0;color:var(--acc);font:inherit;cursor:pointer;padding:0}
+#modal{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;padding:16px;z-index:10}
+#modal .box{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;max-width:420px;width:100%}
+#modal .q{font-size:18px;margin:0 0 6px}
+</style>
+</head>
+<body>
+<main>
+  <h1>⚖️ Balanceador</h1>
+  <p class="sub">Suas 2 contas, sempre no equilíbrio.</p>
+
+  <nav class="tabs"><button data-t="inicio" class="on">Início</button><button data-t="contas">Contas</button><button data-t="lanc">Lançamentos</button><button data-t="cal">Calendário</button><button data-t="extras">Extras</button></nav>
+  <section id="inicio"></section>
+  <section id="contas" hidden></section>
+  <section id="lanc" hidden></section>
+  <section id="cal" hidden></section>
+  <section id="extras" hidden></section>
+
+  <p class="priv">🔒 Seus dados ficam só neste navegador (localStorage). Nada é enviado a nenhum servidor.</p>
+</main>
+<div id="toast">Salvo ✔</div>
+<div id="modal" hidden></div>
+
+<script>
+/* ========== ESTADO + PERSISTÊNCIA ========== */
+const CHAVE = 'balanceador.v3';
+const CHAVES_ANTIGAS = ['balanceador.v2','balanceador.v1']; // lidas só para migrar; não são apagadas (viram backup)
+const VERSAO = 3;
+
+function estadoPadrao(){
+  return {
+    versao: VERSAO,
+    contas: [
+      {id:'rbc', nome:'RBC',     saldo:0, colchao:300},
+      {id:'eq',  nome:'EQ Bank', saldo:0, colchao:0}
+    ],
+    // {id, conta, tipo:'receita'|'despesa', desc, valor, freq, inicio:'AAAA-MM-DD', cada?}
+    // freq: once | weekly | biweekly | monthly | yearly | days (usa 'cada' = X dias)
+    lancamentos: [],
+    metaPoupanca: 300,  // CA$ por mês a guardar além dos colchões (0 = desligado)
+    lembrete: {ativo:false, dias:7, ultima:null} // lembrete de conferir saldos
+  };
+}
+
+/* Migração: quando o schema mudar, suba VERSAO e adicione um passo aqui. */
+function migrar(s){
+  if(!s || typeof s !== 'object') return estadoPadrao();
+  if(s.versao < 2){ s.recorrentes = []; s.avulsos = []; s.versao = 2; }
+  if(s.versao < 3){
+    const ym = hoje().slice(0,8);
+    s.lancamentos = [
+      ...(s.recorrentes||[]).map(r=>({id:r.id,conta:r.conta,tipo:r.tipo,desc:r.desc,valor:r.valor,freq:'monthly',inicio:ym+String(r.dia).padStart(2,'0')})),
+      ...(s.avulsos||[]).map(a=>({id:a.id,conta:a.conta,tipo:a.tipo,desc:a.desc,valor:a.valor,freq:'once',inicio:a.data}))
+    ];
+    delete s.recorrentes; delete s.avulsos; s.versao = 3;
+  }
+  s.lancamentos = s.lancamentos || [];
+  s.dispensado = s.dispensado || null; // chave da sugestão de balanço dispensada (NÃO)
+  if(typeof s.metaPoupanca!=='number') s.metaPoupanca = 300;
+  if(!s.lembrete) s.lembrete = {ativo:false, dias:7, ultima:null};
+  return s;
+}
+
+function carregar(){
+  try{ return migrar(JSON.parse([CHAVE,...CHAVES_ANTIGAS].map(k=>localStorage.getItem(k)).find(Boolean))); }
+  catch(e){ return estadoPadrao(); }
+}
+function salvar(){
+  try{ localStorage.setItem(CHAVE, JSON.stringify(estado)); mostrarToast(); syncLembrete(); }
+  catch(e){ console.error('Não foi possível salvar', e); }
+}
+
+let estado = carregar();
+
+/* ========== UTILITÁRIOS ========== */
+const fmt = new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+function paraTexto(n){ return fmt.format(n); }              // 1100 -> "1.100,00"
+function paraNumero(t){                                      // "1.100,50" ou "1100.50" -> 1100.5
+  t = String(t).trim().replace(/[^\d,.\-]/g,'');
+  if(t.includes(',')) t = t.replace(/\./g,'').replace(',','.');
+  const n = parseFloat(t);
+  return isNaN(n) ? 0 : Math.round(n*100)/100;
+}
+let tt;
+function mostrarToast(){
+  const el = document.getElementById('toast');
+  el.classList.add('on'); clearTimeout(tt);
+  tt = setTimeout(()=>el.classList.remove('on'), 1200);
+}
+
+/* ========== TELA: CADASTRO DAS CONTAS ========== */
+function desenharContas(){
+  const box = document.getElementById('contas');
+  box.innerHTML = '';
+  estado.contas.forEach((c,i)=>{
+    const d = document.createElement('div');
+    d.className = 'card';
+    d.innerHTML = `
+      <h2>Conta ${i+1}</h2>
+      <label for="n${i}">Nome do banco</label>
+      <input id="n${i}" value="${c.nome.replace(/"/g,'&quot;')}" maxlength="30">
+      <div class="row">
+        <div>
+          <label for="s${i}">Saldo atual (CA$)</label>
+          <input id="s${i}" inputmode="decimal" value="${paraTexto(c.saldo)}">
+        </div>
+        <div>
+          <label for="c${i}">Colchão mínimo (CA$)</label>
+          <input id="c${i}" inputmode="decimal" value="${paraTexto(c.colchao)}">
+        </div>
+      </div>
+      <div class="hint">Colchão = o valor que você quer sempre deixar de reserva nesta conta.</div>`;
+    box.appendChild(d);
+
+    d.querySelector('#n'+i).addEventListener('change', e=>{
+      c.nome = e.target.value.trim() || (i===0 ? 'RBC' : 'EQ Bank');
+      e.target.value = c.nome; salvar();
+    });
+    d.querySelector('#s'+i).addEventListener('change', e=>{
+      c.saldo = paraNumero(e.target.value); marcarConferido();
+      e.target.value = paraTexto(c.saldo); salvar();
+    });
+    d.querySelector('#c'+i).addEventListener('change', e=>{
+      c.colchao = Math.max(0, paraNumero(e.target.value));
+      e.target.value = paraTexto(c.colchao); salvar();
+    });
+  });
+  const m=document.createElement('div'); m.className='card';
+  m.innerHTML=`<h2>Meta de poupança</h2>
+    <label for="meta">Quanto guardar por mês (CA$)</label>
+    <input id="meta" inputmode="decimal" value="${paraTexto(estado.metaPoupanca)}">
+    <div class="hint">É o que você quer ver sobrando, somando as duas contas, além dos colchões. Coloque 0 para desligar o alerta.</div>`;
+  box.appendChild(m);
+  m.querySelector('#meta').addEventListener('change', e=>{
+    estado.metaPoupanca = Math.max(0, paraNumero(e.target.value));
+    e.target.value = paraTexto(estado.metaPoupanca); salvar();
+  });
+}
+
+/* ========== PWA: service worker (offline + lembretes) ========== */
+if('serviceWorker' in navigator){
+  addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
+}
+
+/* ========== TELA: LANÇAMENTOS ========== */
+let contaSel = 0, editando = null, apagar = null;
+const uid = ()=>Math.random().toString(36).slice(2,9);
+const esc = s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const cur = n=>'CA$ '+paraTexto(n);
+const dataBR = iso=>iso.split('-').reverse().join('/');
+function hoje(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+
+const FREQ = {once:'Só uma vez', weekly:'Toda semana', biweekly:'A cada 2 semanas (quinzenal)', monthly:'Todo mês', yearly:'Todo ano', days:'A cada X dias'};
+function quando(x){
+  const d = dataBR(x.inicio);
+  if(x.freq==='once') return d;
+  if(x.freq==='monthly') return 'todo mês, dia '+(+x.inicio.slice(8))+' · desde '+d;
+  if(x.freq==='weekly') return 'toda semana · desde '+d;
+  if(x.freq==='biweekly') return 'quinzenal · desde '+d;
+  if(x.freq==='yearly') return 'todo ano · desde '+d;
+  return 'a cada '+x.cada+' dias · desde '+d;
+}
+
+function lista(items){
+  if(!items.length) return '<div class="hint">Nada aqui ainda.</div>';
+  return '<ul class="ls">'+items.map(x=>`<li><div class="d"><b>${esc(nomeLanc(x))}</b><span>${quando(x)}</span></div><div class="v ${x.tipo}">${x.tipo==='receita'?'+':'−'} ${cur(x.valor)}</div>${x.balanco?'':`<button data-a="ed" data-id="${x.id}" title="Editar">✏️</button>`}<button data-a="del" data-id="${x.id}" title="Excluir">🗑️</button></li>`).join('')+'</ul>';
+}
+
+function desenharLanc(){
+  const box = document.getElementById('lanc');
+  const c = estado.contas[contaSel];
+  const e = editando && estado.lancamentos.find(x=>x.id===editando);
+  const minhas = estado.lancamentos.filter(x=>x.conta===c.id);
+  const rec = minhas.filter(x=>x.freq!=='once').sort((a,b)=>a.desc.localeCompare(b.desc));
+  const avu = minhas.filter(x=>x.freq==='once').sort((a,b)=>b.inicio.localeCompare(a.inicio));
+  box.innerHTML = `
+  <div class="seg">${estado.contas.map((x,i)=>`<button data-c="${i}" class="${i===contaSel?'on':''}">${esc(x.nome)}</button>`).join('')}</div>
+  <div class="card"><h2>${e?'Editar lançamento':'Novo lançamento'} · ${esc(c.nome)}</h2>
+    <div class="row">
+      <div><label>Tipo</label><select id="ft"><option value="receita">Receita (+)</option><option value="despesa">Despesa (−)</option></select></div>
+      <div><label>Frequência</label><select id="ff">${Object.entries(FREQ).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></div>
+    </div>
+    <label>Descrição</label><input id="fd" maxlength="40" placeholder="Ex.: Salário, Fatura do cartão">
+    <div class="row">
+      <div><label>Valor (CA$)</label><input id="fv" inputmode="decimal" placeholder="0,00"></div>
+      <div><label id="fl"></label><input id="fx" type="date"></div>
+    </div>
+    <div id="fkw" hidden><label>Repetir a cada quantos dias?</label><input id="fk" type="number" min="1" max="365" placeholder="Ex.: 10"></div>
+    <div class="btns"><button class="pri" id="fs">Salvar</button>${e?'<button id="fc">Cancelar</button>':''}</div>
+    <div class="hint" id="fe"></div>
+  </div>
+  <div class="card"><h2>Recorrentes</h2>${lista(rec)}</div>
+  <div class="card"><h2>Avulsos (histórico)</h2>${lista(avu)}</div>`;
+
+  const q = s=>box.querySelector(s);
+  const ft=q('#ft'), ff=q('#ff'), fd=q('#fd'), fv=q('#fv'), fx=q('#fx'), fl=q('#fl'), fk=q('#fk'), fe=q('#fe');
+  function ajusta(){
+    fl.textContent = ff.value==='once' ? 'Data' : 'Começa em';
+    q('#fkw').hidden = ff.value!=='days';
+  }
+  if(e){ft.value=e.tipo;ff.value=e.freq;fd.value=e.desc;fv.value=paraTexto(e.valor);fx.value=e.inicio;fk.value=e.cada||'';}
+  else{ff.value='monthly';fx.value=hoje();}
+  ajusta(); ff.onchange=ajusta;
+
+  q('#fs').onclick=()=>{
+    const freq=ff.value, desc=fd.value.trim(), valor=paraNumero(fv.value), inicio=fx.value, cada=parseInt(fk.value,10);
+    if(!desc){fe.textContent='Coloca uma descrição.';return;}
+    if(valor<=0){fe.textContent='O valor precisa ser maior que zero.';return;}
+    if(!inicio){fe.textContent='Escolhe uma data.';return;}
+    if(freq==='days' && !(cada>=1&&cada<=365)){fe.textContent='Diz de quantos em quantos dias (1 a 365).';return;}
+    const base={tipo:ft.value,desc,valor,freq,inicio};
+    if(freq==='days') base.cada=cada;
+    if(e){ delete e.cada; Object.assign(e,base); }
+    else estado.lancamentos.push({id:uid(),conta:c.id,...base});
+    editando=null; salvar(); desenharLanc();
+  };
+  const fc=q('#fc'); if(fc) fc.onclick=()=>{editando=null;desenharLanc();};
+  box.querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{contaSel=+b.dataset.c;editando=null;desenharLanc();});
+  box.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>{
+    const id=b.dataset.id;
+    if(b.dataset.a==='ed'){editando=id;desenharLanc();scrollTo(0,0);return;}
+    // Excluir em 2 toques (confirm() é bloqueado em páginas embutidas)
+    if(apagar===id){
+      const alvo=estado.lancamentos.find(x=>x.id===id); // Balanço: apaga a saída e a entrada juntas
+      estado.lancamentos=estado.lancamentos.filter(x=>x.id!==id && !(alvo&&alvo.balanco&&x.balanco&&x.balanco.gid===alvo.balanco.gid));
+      if(editando===id) editando=null;
+      apagar=null; salvar(); desenharLanc();
+    }else{
+      apagar=id; b.innerHTML='<b class="conf">Excluir?</b>';
+      setTimeout(()=>{ if(apagar===id){apagar=null; b.innerHTML='🗑️';} },3000);
+    }
+  });
+}
+
+/* ========== MOTOR: OCORRÊNCIAS E PROJEÇÃO ========== */
+const dnum = iso=>{const [y,m,d]=iso.split('-').map(Number);return Date.UTC(y,m-1,d)/864e5;};
+const dstr = n=>{const d=new Date(n*864e5);return d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0')+'-'+String(d.getUTCDate()).padStart(2,'0');};
+const diasNoMes = (y,m)=>new Date(Date.UTC(y,m,0)).getUTCDate(); // m = 1..12
+const p2 = n=>String(n).padStart(2,'0');
+function fimDoMes(iso){const [y,m]=iso.split('-').map(Number);return y+'-'+p2(m)+'-'+p2(diasNoMes(y,m));}
+
+/* Datas (AAAA-MM-DD) em que o lançamento l acontece entre de e ate (inclusive). Reusado pelo fluxo de caixa e pelo calendário. */
+function ocorrencias(l,de,ate){
+  const o=ocorrenciasBrutas(l,de,ate);
+  return l.excecoes ? o.filter(d=>!l.excecoes.includes(d)) : o;   // excecoes = dias apagados só naquela data
+}
+function ocorrenciasBrutas(l,de,ate){
+  const a=dnum(de), b=dnum(ate), i0=dnum(l.inicio), out=[];
+  if(b<i0) return out;
+  if(l.freq==='once'){ if(i0>=a&&i0<=b) out.push(l.inicio); return out; }
+  if(l.freq==='days' && !(l.cada>=1)) return out;
+  const passo = {weekly:7,biweekly:14,days:l.cada}[l.freq];
+  if(passo){
+    for(let n = i0>=a ? i0 : i0+Math.ceil((a-i0)/passo)*passo; n<=b; n+=passo) out.push(dstr(n));
+    return out;
+  }
+  // mensal / anual (dia 29-31 vira o último dia do mês quando o mês é mais curto)
+  const [,m0,d0]=l.inicio.split('-').map(Number);
+  let [y,m]=de.split('-').map(Number); const [yb,mb]=ate.split('-').map(Number);
+  while(y<yb||(y===yb&&m<=mb)){
+    if(l.freq==='monthly' || m===m0){
+      const n=dnum(y+'-'+p2(m)+'-'+p2(Math.min(d0,diasNoMes(y,m))));
+      if(n>=a&&n<=b&&n>=i0) out.push(dstr(n));
+    }
+    m++; if(m>12){m=1;y++;}
+  }
+  return out;
+}
+
+/* Projeção de fim de mês = saldo atual + receitas restantes − despesas restantes.
+   "Restantes" = de hoje (inclusive) até o último dia do mês. */
+const r2 = n=>Math.round(n*100)/100;
+function projecaoMes(conta){
+  const de=hoje(), ate=fimDoMes(de); let rec=0, desp=0;
+  estado.lancamentos.filter(l=>l.conta===conta.id).forEach(l=>{
+    const n=ocorrencias(l,de,ate).length;
+    if(l.tipo==='receita') rec+=n*l.valor; else desp+=n*l.valor;
+  });
+  return {rec:r2(rec), desp:r2(desp), proj:r2(conta.saldo+rec-desp)};
+}
+/* Regras do status (ajuste aqui se quiser): saudável = chega ao colchão; atenção = abaixo do colchão mas sem ficar negativo; crítico = negativo. */
+function statusDe(proj,colchao){ return proj<0 ? 'critico' : (proj<colchao ? 'atencao' : 'saudavel'); }
+/* Fluxo de caixa: saldo projetado de cada dia, de hoje até o fim do mês.
+   Saldo do dia = saldo atual + todos os lançamentos de hoje até aquele dia (incluindo os do próprio dia). */
+function fluxoDiario(conta){
+  const de=hoje(), ate=fimDoMes(de), porDia={};
+  estado.lancamentos.filter(l=>l.conta===conta.id).forEach(l=>ocorrencias(l,de,ate).forEach(d=>{(porDia[d]=porDia[d]||[]).push(l);}));
+  let saldo=conta.saldo; const dias=[];
+  for(let n=dnum(de), f=dnum(ate); n<=f; n++){
+    const d=dstr(n), itens=porDia[d]||[];
+    itens.forEach(l=>{ saldo+= l.tipo==='receita'?l.valor:-l.valor; });
+    saldo=r2(saldo);
+    dias.push({data:d, dia:+d.slice(8), saldo, itens, critico:saldo<conta.colchao});
+  }
+  return dias;
+}
+/* Resumo do mês (as 2 contas juntas). Balanço não entra: só move dinheiro de uma conta para a outra. */
+function resumoMes(){
+  const h=hoje(), ini=h.slice(0,8)+'01', fim=fimDoMes(h);
+  const t={rec:0,desp:0,faltaRec:0,faltaDesp:0,proj:0};
+  estado.contas.forEach(c=>{
+    estado.lancamentos.filter(l=>l.conta===c.id && !l.balanco).forEach(l=>{
+      const v=ocorrencias(l,ini,fim).length*l.valor, f=ocorrencias(l,h,fim).length*l.valor;
+      if(l.tipo==='receita'){t.rec+=v;t.faltaRec+=f;} else {t.desp+=v;t.faltaDesp+=f;}
+    });
+    t.proj+=projecaoMes(c).proj;
+  });
+  Object.keys(t).forEach(k=>t[k]=r2(t[k]));
+  return t;
+}
+
+/* Poupança: sobra livre = (projeção das 2 contas somadas) − (colchões somados).
+   Falta = meta − sobra livre. Se > 0, é quanto precisa ser poupado para bater a meta. */
+function poupanca(){
+  const meta=estado.metaPoupanca||0, cs=estado.contas;
+  const comb=r2(cs.reduce((t,c)=>t+projecaoMes(c).proj,0));
+  const col=r2(cs.reduce((t,c)=>t+c.colchao,0));
+  const livre=r2(comb-col);
+  return {meta, comb, col, livre, falta:r2(meta-livre)};
+}
+
+/* Calendário de um mês: lançamentos e saldo de cada dia.
+   Futuro/hoje: saldo atual + lançamentos de hoje até o dia (inclusive). Passado: volta a partir do saldo atual (realizado). */
+function calendarioMes(conta,y,m){
+  const ini=y+'-'+p2(m)+'-01', fim=fimDoMes(ini), h=hoje();
+  const de=ini<h?ini:h, ate=fim>h?fim:h, porDia={};
+  estado.lancamentos.filter(l=>l.conta===conta.id).forEach(l=>ocorrencias(l,de,ate).forEach(d=>{(porDia[d]=porDia[d]||[]).push(l);}));
+  const soma=it=>it.reduce((t,l)=>t+(l.tipo==='receita'?l.valor:-l.valor),0);
+  const saldoAt={}; let sd=conta.saldo;
+  for(let n=dnum(h); n<=dnum(ate); n++){ const d=dstr(n); sd+=soma(porDia[d]||[]); saldoAt[d]=r2(sd); }
+  sd=conta.saldo;
+  for(let n=dnum(h)-1; n>=dnum(de); n--){ const d=dstr(n); saldoAt[d]=r2(sd); sd-=soma(porDia[d]||[]); }
+  const dias=[];
+  for(let n=dnum(ini), f=dnum(fim); n<=f; n++){
+    const d=dstr(n), v=saldoAt[d];
+    dias.push({data:d, dia:+d.slice(8), itens:porDia[d]||[], saldo:v, passado:d<h, critico:d>=h && v<conta.colchao});
+  }
+  return dias;
+}
+/* Alerta antecipado: primeiro dia em que o saldo fica abaixo do colchão, a causa e quando volta. */
+function alertaCritico(conta,dias){
+  const i=dias.findIndex(d=>d.critico); if(i<0) return null;
+  const d=dias[i], volta=dias.slice(i).find(x=>!x.critico);
+  const desps=d.itens.filter(l=>l.tipo==='despesa').sort((a,b)=>b.valor-a.valor);
+  const causa = desps.length ? ' por causa de '+nomeLanc(desps[0])+' (−'+cur(desps[0].valor)+')' : (i===0?' (já começa assim)':'');
+  return 'Atenção: '+(i===0?'hoje':'no dia '+d.dia)+' o saldo do '+conta.nome+' deve ficar abaixo do colchão'+causa+'. '
+    + (volta ? 'Ele volta ao colchão no dia '+volta.dia+'.' : 'Ele não volta ao colchão até o fim do mês.');
+}
+const ST = {saudavel:['Saudável','var(--ok)'], atencao:['Atenção','#fbbf24'], critico:['Crítico','#f87171']};
+
+/* ========== TELA: INÍCIO ========== */
+let FLUXO=[];
+function desenharInicio(){
+  const box=document.getElementById('inicio');
+  const mes=new Date().toLocaleDateString('pt-BR',{month:'long'});
+  box.innerHTML = bannerLembrete() + cardBalanco() + cardPoupanca() + cardResumo() + `<p class="sub">Como cada conta deve terminar ${mes}, contando o que ainda falta entrar e sair (inclusive hoje).</p>` +
+  estado.contas.map((c,i)=>{
+    const dias=FLUXO[i]=fluxoDiario(c), al=alertaCritico(c,dias);
+    const p=projecaoMes(c), st=statusDe(p.proj,c.colchao), [rot,cor]=ST[st];
+    const pct = c.colchao>0 ? Math.max(0,Math.min(100,p.proj/c.colchao*100)) : (p.proj>=0?100:0);
+    const dif = p.proj>=c.colchao ? `sobram ${cur(p.proj-c.colchao)} acima do colchão` : `faltam ${cur(c.colchao-p.proj)} para o colchão`;
+    return `<div class="card"><h2>${esc(c.nome)}<span class="chip" style="color:${cor}">${rot}</span></h2>
+      <div class="row">
+        <div><div class="k">Saldo atual</div><div class="big">${cur(c.saldo)}</div></div>
+        <div><div class="k">Fim do mês</div><div class="big" style="color:${cor}">${cur(p.proj)}</div></div>
+      </div>
+      <div class="bar"><i style="width:${pct}%;background:${cor}"></i></div>
+      <div class="hint">Colchão ${cur(c.colchao)} · ${dif}</div>
+      <div class="hint">Ainda entram +${cur(p.rec)} e saem −${cur(p.desp)} neste mês.</div>
+      ${al?`<p class="alerta">⚠️ ${esc(al)}</p>`:''}
+      <div class="tl" data-i="${i}">${dias.map(d=>`<button class="dia ${d.critico?'crit':''} ${d.data===hoje()?'hoje':''}" data-d="${d.data}"><span>${d.dia}</span>${d.itens.length?'<i></i>':''}</button>`).join('')}</div>
+      <div class="hint" id="tli${i}">Toque num dia: vermelho = abaixo do colchão, ponto = tem lançamento.</div>
+    </div>`;
+  }).join('') + cardAtalhos();
+  ligarBalanco(); ligarFluxo(); ligarAtalhos(); ligarLembrete();
+}
+
+function ligarFluxo(){
+  document.querySelectorAll('.tl').forEach(tl=>tl.querySelectorAll('.dia').forEach(b=>b.onclick=()=>{
+    const i=+tl.dataset.i, d=FLUXO[i].find(x=>x.data===b.dataset.d);
+    document.getElementById('tli'+i).textContent='Dia '+d.dia+' · saldo '+cur(d.saldo)+(d.itens.length?' · '+d.itens.map(l=>(l.tipo==='receita'?'+':'−')+cur(l.valor)+' '+nomeLanc(l)).join(', '):'');
+  }));
+}
+
+/* ========== MOTOR DE REBALANCEAMENTO ========== */
+function curto(c){ return c.nome.split(' ')[0]; }                 // "EQ Bank" -> "EQ"
+function contaPorId(id){ return estado.contas.find(c=>c.id===id); }
+function curv(n){ return Number.isInteger(n) ? 'CA$ '+n.toLocaleString('pt-BR') : cur(n); }
+function nomeLanc(x){
+  if(!x.balanco) return x.desc;
+  const a=contaPorId(x.balanco.de), b=contaPorId(x.balanco.para);
+  return 'Balanço · '+(a?curto(a):'?')+' → '+(b?curto(b):'?');
+}
+
+/* Regra: usa o PIOR dia de cada conta (menor saldo do mês), não só o fim do mês.
+   Uma transferência feita hoje vale o mês inteiro, então:
+   falta em X = colchão − pior saldo de X;  sobra em Y = pior saldo de Y − colchão.
+   Valor = mínimo(falta, sobra) em dólar cheio (falta arredonda pra cima, sobra pra baixo). */
+function sugestaoBalanco(){
+  const cs=estado.contas, fl=cs.map(fluxoDiario);
+  const pior=fl.map(d=>Math.min(...d.map(x=>x.saldo)));
+  const falta=cs.map((c,i)=>r2(c.colchao-pior[i]));   // > 0 = fica abaixo do colchão em algum dia
+  const ab=falta.map(f=>f>0);
+  if(!ab[0] && !ab[1]) return {tipo:'ok'};
+  if(ab[0] && ab[1]) return {tipo:'ambas'};
+  const x=ab[0]?0:1, y=1-x, sobra=-falta[y];
+  const valor=Math.min(Math.ceil(falta[x]), Math.floor(sobra));
+  if(valor<1) return {tipo:'semsobra', x};
+  const ate=fl[x].find(d=>d.critico).dia;
+  return {tipo:'transferir', de:y, para:x, valor, ate, resta:r2(falta[x]-valor), chave:y+'>'+x+':'+valor+':'+hoje().slice(0,7)};
+}
+
+let SUG=null;
+function cardBalanco(){
+  const s = SUG = sugestaoBalanco();
+  if(s.tipo==='ok') return '<div class="card good"><p class="msg">Contas equilibradas ✔</p><div class="hint">As duas contas ficam no colchão ou acima o mês todo.</div></div>';
+  if(s.tipo==='ambas') return '<div class="card warn"><p class="msg">⚠️ Atenção: as duas contas devem terminar o mês abaixo do colchão.</p><div class="hint">Não dá para resolver só transferindo de uma para a outra. Vale revisar os gastos ou ver se entra mais dinheiro.</div></div>';
+  if(s.tipo==='semsobra') return `<div class="card warn"><p class="msg">⚠️ Atenção: ${esc(estado.contas[s.x].nome)} deve terminar o mês abaixo do colchão.</p><div class="hint">E a outra conta não tem sobra para cobrir.</div></div>`;
+  const a=estado.contas[s.de], b=estado.contas[s.para];
+  if(estado.dispensado===s.chave) return `<div class="card"><div class="hint">Sugestão de ${curv(s.valor)} de ${esc(a.nome)} para ${esc(b.nome)} dispensada. <button class="lk" id="bd">Mostrar de novo</button></div></div>`;
+  return `<div class="card hl"><h2>Sugestão de transferência</h2>
+    <p class="msg">Ei, você precisa tirar ${curv(s.valor)} da conta ${esc(a.nome)} para a conta ${esc(b.nome)}${s.ate===+hoje().slice(8)?' hoje':' antes do dia '+s.ate}.</p>
+    <div class="hint">${s.resta>0 ? `Mesmo assim, ${esc(b.nome)} ainda ficaria ${cur(s.resta)} abaixo do colchão no pior dia.` : 'Assim as duas contas ficam no colchão ou acima o mês todo.'}</div>
+    <div class="btns"><button class="pri" id="bf">Marcar como feita</button></div></div>`;
+}
+function cardResumo(){
+  const r=resumoMes(), mes=new Date().toLocaleDateString('pt-BR',{month:'long'});
+  return `<div class="card"><h2>Resumo de ${mes}</h2>
+    <div class="kv"><span>Receitas do mês</span><b class="v receita">+ ${cur(r.rec)}</b></div>
+    <div class="kv"><span>Despesas do mês</span><b class="v despesa">− ${cur(r.desp)}</b></div>
+    <div class="kv"><span>Saldo combinado projetado (fim do mês)</span><b>${cur(r.proj)}</b></div>
+    <div class="hint">Ainda falta entrar +${cur(r.faltaRec)} e sair −${cur(r.faltaDesp)} (contando hoje). Balanços entre contas não entram nas somas.</div></div>`;
+}
+function cardAtalhos(){
+  return `<div class="card"><h2>Calendários do mês</h2><div class="btns">${estado.contas.map((c,i)=>`<button data-cal="${i}">📅 ${esc(c.nome)}</button>`).join('')}</div></div>`;
+}
+function ligarAtalhos(){
+  document.querySelectorAll('[data-cal]').forEach(b=>b.onclick=()=>{
+    calConta=+b.dataset.cal; calY=+hoje().slice(0,4); calM=+hoje().slice(5,7); calSel=hoje(); calForm=calDel=null;
+    mostrarTela('cal');
+  });
+}
+function cardPoupanca(){
+  const p=poupanca();
+  if(p.meta<=0) return '<div class="card"><div class="hint">💰 Sem meta de poupança. Se quiser acompanhar, defina uma na aba Contas.</div></div>';
+  const base = p.livre>=0 ? 'devem sobrar '+cur(p.livre)+' acima dos colchões' : 'faltam '+cur(-p.livre)+' para as duas contas chegarem nos colchões';
+  if(p.falta>0) return `<div class="card warn"><h2>Poupança</h2><p class="msg">Você precisa poupar ${curv(p.falta)} este mês para não ter essa preocupação no mês que vem.</p><div class="hint">Meta: ${curv(p.meta)} · pela projeção, ${base}.</div></div>`;
+  return `<div class="card good"><h2>Poupança</h2><p class="msg">Meta de poupança no caminho ✔</p><div class="hint">Meta: ${curv(p.meta)} · pela projeção, ${base}${p.livre>p.meta?' ('+curv(r2(p.livre-p.meta))+' além da meta)':''}.</div></div>`;
+}
+function ligarBalanco(){
+  const f=document.getElementById('bf'); if(f) f.onclick=()=>dialogoBalanco(SUG);
+  const d=document.getElementById('bd'); if(d) d.onclick=()=>{estado.dispensado=null;salvar();desenharInicio();};
+}
+
+function fecharModal(){const m=document.getElementById('modal');m.hidden=true;m.innerHTML='';}
+function dialogoBalanco(s){
+  const m=document.getElementById('modal'), a=estado.contas[s.de], b=estado.contas[s.para];
+  m.innerHTML=`<div class="box"><p class="q">Posso enviar <b>${curv(s.valor)}</b> do ${esc(curto(a))} para o ${esc(curto(b))}?</p>
+    <div id="cw" hidden><label for="cv">Quanto você quer enviar? (CA$)</label><input id="cv" inputmode="decimal" placeholder="0,00"><div class="hint" id="ce" style="color:#f87171"></div></div>
+    <div class="btns"><button class="pri" id="bs">SIM</button><button id="bn">NÃO</button><button id="bc">CUSTOM</button></div></div>`;
+  m.hidden=false;
+  const q=x=>m.querySelector(x);
+  m.onclick=e=>{ if(e.target===m) fecharModal(); };
+  q('#bs').onclick=()=>registrarBalanco(s.de,s.para,s.valor);
+  q('#bn').onclick=()=>{estado.dispensado=s.chave;salvar();fecharModal();desenharInicio();};
+  q('#bc').onclick=()=>{
+    q('#cw').hidden=false; q('#cv').focus();
+    q('.btns').innerHTML='<button class="pri" id="ok">Confirmar</button><button id="vo">Voltar</button>';
+    q('#ok').onclick=()=>{const v=paraNumero(q('#cv').value); if(v<=0){q('#ce').textContent='Digita um valor maior que zero.';return;} registrarBalanco(s.de,s.para,v);};
+    q('#vo').onclick=()=>dialogoBalanco(s);
+  };
+}
+
+/* Registra o Balanço: saída na origem + entrada no destino, ambas com data de hoje. */
+function registrarBalanco(de,para,valor){
+  const a=estado.contas[de], b=estado.contas[para], gid=uid(), d=hoje();
+  const base={freq:'once',inicio:d,valor,balanco:{gid,de:a.id,para:b.id}};
+  estado.lancamentos.push(
+    {id:uid(),conta:a.id,tipo:'despesa',desc:'Balanço',...base},
+    {id:uid(),conta:b.id,tipo:'receita',desc:'Balanço',...base});
+  estado.dispensado=null; salvar(); fecharModal(); desenharInicio();
+}
+
+/* ========== TELA: CALENDÁRIO POR BANCO ========== */
+const MESES=['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+const DSEM=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+let calConta=0, calY=+hoje().slice(0,4), calM=+hoje().slice(5,7), calSel=null, calForm=null, calDel=null;
+const numCurto=n=>Math.round(n).toLocaleString('pt-BR');
+
+function celulaCal(d){
+  const chips=d.itens.slice(0,3).map(l=> l.balanco
+    ? `<span class="ch b" title="Balanço">${esc(nomeLanc(l).replace('Balanço · ',''))}</span>`
+    : `<span class="ch ${l.tipo==='receita'?'r':'d'}" title="${esc(l.desc)}">${l.tipo==='receita'?'+':'−'}${numCurto(l.valor)}</span>`).join('')
+    + (d.itens.length>3?`<span class="ch">+${d.itens.length-3}</span>`:'');
+  return `<button class="cd ${d.passado?'past':''} ${d.critico?'crit':''} ${d.data===hoje()?'hoje':''} ${d.data===calSel?'sel':''}" data-d="${d.data}"><span class="n">${d.dia}</span>${chips}<span class="sd">${numCurto(d.saldo)}</span></button>`;
+}
+
+function desenharCal(){
+  const box=document.getElementById('cal'), c=estado.contas[calConta];
+  const dias=calendarioMes(c,calY,calM);
+  const pad=new Date(Date.UTC(calY,calM-1,1)).getUTCDay();
+  box.innerHTML=`
+    <div class="seg">${estado.contas.map((x,i)=>`<button data-cc="${i}" class="${i===calConta?'on':''}">${esc(x.nome)}</button>`).join('')}</div>
+    <div class="nav"><button id="cp" aria-label="Mês anterior">‹</button><b>${MESES[calM-1]} de ${calY}</b><button id="cn" aria-label="Próximo mês">›</button></div>
+    <div class="cal">${DSEM.map(d=>`<div class="sem">${d}</div>`).join('')}${'<div></div>'.repeat(pad)}${dias.map(celulaCal).join('')}</div>
+    <div class="hint" style="margin:8px 0 14px">Cinza = realizado · normal = projeção · vermelho = abaixo do colchão · amarelo = Balanço. O número de baixo de cada dia é o saldo dele.</div>
+    <div id="cdet"></div>`;
+  desenharDet(dias,c);
+  box.querySelectorAll('[data-cc]').forEach(b=>b.onclick=()=>{calConta=+b.dataset.cc;calForm=calDel=null;desenharCal();});
+  const mov=k=>{calM+=k; if(calM<1){calM=12;calY--;} if(calM>12){calM=1;calY++;} calSel=calForm=calDel=null; desenharCal();};
+  box.querySelector('#cp').onclick=()=>mov(-1); box.querySelector('#cn').onclick=()=>mov(1);
+  box.querySelectorAll('.cd').forEach(b=>b.onclick=()=>{calSel=b.dataset.d;calForm=calDel=null;desenharCal();document.getElementById('cdet').scrollIntoView({behavior:'smooth',block:'nearest'});});
+}
+
+function linhaDia(l){
+  let ops='';
+  if(calDel===l.id){
+    ops = (l.freq!=='once' && !l.balanco)
+      ? `<li class="opx"><div class="opc"><button data-a="x1" data-id="${l.id}">Só este dia</button><button class="perigo" data-a="xa" data-id="${l.id}">Todas as repetições</button><button data-a="xc">Cancelar</button></div></li>`
+      : `<li class="opx"><div class="opc"><button class="perigo" data-a="xa" data-id="${l.id}">${l.balanco?'Excluir o Balanço (nas duas contas)':'Excluir'}</button><button data-a="xc">Cancelar</button></div></li>`;
+  }
+  const sub = l.balanco ? 'transferência entre contas' : (l.freq==='once' ? 'só neste dia' : 'repete: '+quando(l));
+  return `<li><div class="d"><b>${esc(nomeLanc(l))}</b><span>${sub}</span></div><div class="v ${l.tipo}">${l.tipo==='receita'?'+':'−'} ${cur(l.valor)}</div>${l.balanco?'':`<button data-a="ed" data-id="${l.id}" title="Editar">✏️</button>`}<button data-a="del" data-id="${l.id}" title="Excluir">🗑️</button></li>${ops}`;
+}
+
+function desenharDet(dias,c){
+  const el=document.getElementById('cdet');
+  const d=dias.find(x=>x.data===calSel);
+  if(!d){ el.innerHTML='<div class="hint">Toque num dia para ver os lançamentos e o saldo dele.</div>'; return; }
+  const [y,m,dd]=d.data.split('-').map(Number);
+  const tit=new Date(Date.UTC(y,m-1,dd)).toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long',timeZone:'UTC'});
+  const f = calForm && calForm.id ? estado.lancamentos.find(x=>x.id===calForm.id) : null;
+  const form = !calForm ? '<div class="btns"><button class="pri" id="cnew">+ Novo lançamento</button></div>' : `
+    <div class="row"><div><label>Tipo</label><select id="dt"><option value="receita">Receita (+)</option><option value="despesa">Despesa (−)</option></select></div>
+    <div><label>Valor (CA$)</label><input id="dv" inputmode="decimal" placeholder="0,00" value="${f?paraTexto(f.valor):''}"></div></div>
+    <label>Descrição</label><input id="dd" maxlength="40" placeholder="Ex.: Salário, Fatura do cartão" value="${f?esc(f.desc):''}">
+    ${f&&f.freq!=='once'?'<div class="hint">Isso muda todas as repetições. Para mudar data ou frequência, use a aba Lançamentos.</div>':''}
+    <div class="btns"><button class="pri" id="dsave">Salvar</button><button id="dcancel">Cancelar</button></div><div class="hint" id="derr" style="color:#f87171"></div>`;
+  el.innerHTML=`<div class="card"><h2 style="text-transform:capitalize">${tit}<span class="chip" style="color:${d.passado?'var(--mut)':'var(--acc)'}">${d.passado?'Realizado':'Projeção'}</span></h2>
+    ${d.itens.length?'<ul class="ls">'+d.itens.map(linhaDia).join('')+'</ul>':'<div class="hint">Sem lançamentos neste dia.</div>'}
+    <div class="saldo-dia">Saldo do dia: <b style="color:${d.critico?'#f87171':'var(--tx)'}">${cur(d.saldo)}</b>${d.critico?' · abaixo do colchão':''}</div>
+    ${form}</div>`;
+  const q=x=>el.querySelector(x);
+  const nb=q('#cnew'); if(nb) nb.onclick=()=>{calForm={id:null};desenharDet(dias,c);};
+  if(calForm){
+    q('#dt').value=f?f.tipo:'despesa';
+    q('#dcancel').onclick=()=>{calForm=null;desenharDet(dias,c);};
+    q('#dsave').onclick=()=>{
+      const desc=q('#dd').value.trim(), valor=paraNumero(q('#dv').value), tipo=q('#dt').value;
+      if(!desc){q('#derr').textContent='Coloca uma descrição.';return;}
+      if(valor<=0){q('#derr').textContent='O valor precisa ser maior que zero.';return;}
+      if(f) Object.assign(f,{tipo,desc,valor});
+      else estado.lancamentos.push({id:uid(),conta:c.id,tipo,desc,valor,freq:'once',inicio:calSel});
+      calForm=null; salvar(); desenharCal();
+    };
+  }
+  el.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>{
+    const a=b.dataset.a, id=b.dataset.id, l=estado.lancamentos.find(x=>x.id===id);
+    if(a==='ed'){calForm={id};calDel=null;desenharDet(dias,c);}
+    else if(a==='del'){calDel=id;desenharDet(dias,c);}
+    else if(a==='xc'){calDel=null;desenharDet(dias,c);}
+    else if(a==='x1'){l.excecoes=(l.excecoes||[]).concat(calSel);calDel=null;salvar();desenharCal();}
+    else if(a==='xa'){
+      estado.lancamentos=estado.lancamentos.filter(x=>x.id!==id && !(l.balanco&&x.balanco&&x.balanco.gid===l.balanco.gid));
+      calDel=null; salvar(); desenharCal();
+    }
+  });
+}
+
+/* ========== EXTRAS: LEMBRETE, BACKUP, RELATÓRIO ========== */
+function diasDesde(iso){ return Math.floor(dnum(hoje())-dnum(iso)); }
+function marcarConferido(){ estado.lembrete.ultima=hoje(); }
+
+/* O service worker (sw.js) não enxerga o localStorage, então espelhamos o lembrete no IndexedDB. */
+function syncLembrete(){
+  try{
+    const r=indexedDB.open('balanceador-lembrete',1);
+    r.onupgradeneeded=()=>r.result.createObjectStore('k');
+    r.onsuccess=()=>{ try{ r.result.transaction('k','readwrite').objectStore('k').put(estado.lembrete,'lembrete'); }catch(e){} };
+  }catch(e){}
+}
+function bannerLembrete(){
+  const l=estado.lembrete; if(!l.ativo) return '';
+  const d=l.ultima?diasDesde(l.ultima):999;
+  if(d<l.dias) return '';
+  return `<div class="card warn"><p class="msg">🔔 Hora de conferir os saldos</p><div class="hint">${l.ultima?'Faz '+d+' dia'+(d===1?'':'s')+' desde a última conferência.':'Você ainda não marcou nenhuma conferência.'} Compare com o banco e corrija na aba Contas (mexer no saldo já conta como conferido).</div><div class="btns"><button class="pri" id="bconf">Já conferi</button></div></div>`;
+}
+function ligarLembrete(){ const b=document.getElementById('bconf'); if(b) b.onclick=()=>{marcarConferido();salvar();desenharInicio();}; }
+async function ativarNotificacoes(){
+  try{
+    if('Notification' in window && Notification.permission==='default') await Notification.requestPermission();
+    const reg=await Promise.race([navigator.serviceWorker.ready,new Promise(r=>setTimeout(r,1500))]);
+    if(reg && Notification.permission==='granted' && 'periodicSync' in reg) await reg.periodicSync.register('conferir-saldos',{minInterval:24*3600*1000});
+  }catch(e){}
+}
+function statusLembrete(){
+  const p='Notification' in window ? Notification.permission : 'x';
+  const n = p==='granted'?'permitida':p==='denied'?'bloqueada (libere nas configurações do navegador)':p==='default'?'ainda não pedida':'indisponível';
+  return 'Aviso dentro do app: sempre que você abrir. Notificação do Android: '+n+'. Aviso com o app fechado só funciona com ele instalado na tela inicial, e o Android decide o horário.';
+}
+
+function pedirConfirmacao(texto,aoSim){
+  const m=document.getElementById('modal');
+  m.innerHTML=`<div class="box"><p class="q">${esc(texto)}</p><div class="btns"><button class="pri" id="cs">SIM</button><button id="cn2">NÃO</button></div></div>`;
+  m.hidden=false; m.onclick=e=>{ if(e.target===m) fecharModal(); };
+  m.querySelector('#cs').onclick=()=>{ fecharModal(); aoSim(); };
+  m.querySelector('#cn2').onclick=fecharModal;
+}
+function baixarArquivo(nome,texto,tipo){
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([texto],{type:tipo})); a.download=nome;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+}
+function exportarJSON(){
+  baixarArquivo('balanceador-'+hoje()+'.json', JSON.stringify({app:'balanceador',exportadoEm:new Date().toISOString(),...estado},null,2), 'application/json');
+}
+function importarJSON(arquivo,msgEl){
+  const rd=new FileReader();
+  rd.onload=()=>{
+    try{
+      const o=JSON.parse(rd.result);
+      if(!o || !Array.isArray(o.contas) || o.contas.length!==2) throw new Error('Esse arquivo não parece um backup do Balanceador.');
+      const novo=migrar(o); delete novo.app; delete novo.exportadoEm;
+      pedirConfirmacao('Substituir todos os dados atuais pelos do backup? Os dados de agora ficam guardados como cópia de segurança neste aparelho.', ()=>{
+        try{ localStorage.setItem('balanceador.antes-do-import', JSON.stringify(estado)); }catch(e){}
+        estado=novo; salvar(); desenharExtras();
+        document.getElementById('bmsg').textContent='Backup restaurado ✔';
+      });
+    }catch(e){ msgEl.textContent=e.message||'Arquivo inválido.'; }
+  };
+  rd.readAsText(arquivo);
+}
+
+function textoRelatorio(){
+  const h=hoje(), [y,m]=h.split('-').map(Number), L=[], q=n=>cur(n);
+  L.push('BALANCEADOR — Relatório de '+MESES[m-1]+' de '+y, 'Gerado em '+dataBR(h), '');
+  estado.contas.forEach(c=>{
+    const dias=calendarioMes(c,y,m), p=projecaoMes(c), st=ST[statusDe(p.proj,c.colchao)][0], fl=fluxoDiario(c);
+    const pior=fl.reduce((a,b)=>b.saldo<a.saldo?b:a);
+    let rec=0, desp=0;
+    dias.forEach(d=>d.itens.filter(l=>!l.balanco).forEach(l=>{ if(l.tipo==='receita') rec+=l.valor; else desp+=l.valor; }));
+    L.push(c.nome.toUpperCase(),
+      '  Saldo atual: '+q(c.saldo)+'   Colchão: '+q(c.colchao),
+      '  Projeção de fim de mês: '+q(p.proj)+' ('+st+')',
+      '  Pior dia até o fim do mês: dia '+pior.dia+', com '+q(pior.saldo),
+      '  Receitas do mês: '+q(r2(rec))+'   Despesas do mês: '+q(r2(desp))+' (sem Balanços)');
+    const al=alertaCritico(c,fl); if(al) L.push('  '+al);
+    L.push('  Lançamentos do mês:');
+    const linhas=[];
+    dias.forEach(d=>d.itens.forEach(l=>linhas.push('    '+p2(d.dia)+'/'+p2(m)+'  '+(l.tipo==='receita'?'+':'−')+' '+q(l.valor)+'  '+nomeLanc(l))));
+    L.push(...(linhas.length?linhas:['    (nenhum)']), '');
+  });
+  const r=resumoMes(), s=sugestaoBalanco(), po=poupanca();
+  L.push('RESUMO COMBINADO','  Receitas: '+q(r.rec)+'   Despesas: '+q(r.desp),'  Saldo combinado projetado: '+q(r.proj),'');
+  L.push('REBALANCEAMENTO','  '+(s.tipo==='transferir' ? 'Transferir '+curv(s.valor)+' de '+estado.contas[s.de].nome+' para '+estado.contas[s.para].nome+(s.ate===+h.slice(8)?' hoje.':' antes do dia '+s.ate+'.')
+    : s.tipo==='ok' ? 'Contas equilibradas.' : s.tipo==='ambas' ? 'As duas contas ficam abaixo do colchão; só transferir não resolve.' : 'Uma conta fica abaixo do colchão e a outra não tem sobra.'),'');
+  L.push('POUPANÇA','  '+(po.meta<=0 ? 'Sem meta definida.' : po.falta>0 ? 'Meta '+curv(po.meta)+': é preciso poupar '+curv(po.falta)+' este mês.' : 'Meta '+curv(po.meta)+' no caminho.'));
+  return L.join('\n');
+}
+
+function desenharExtras(){
+  const box=document.getElementById('extras'), l=estado.lembrete;
+  box.innerHTML=`
+  <div class="card"><h2>Lembrete de conferir saldos</h2>
+    <div class="row">
+      <div><label for="la">Lembrar</label><select id="la"><option value="0">Desligado</option><option value="1">Ligado</option></select></div>
+      <div><label for="ld">A cada</label><select id="ld"><option value="1">1 dia</option><option value="3">3 dias</option><option value="7">7 dias</option><option value="15">15 dias</option></select></div>
+    </div>
+    <div class="hint" id="lst"></div></div>
+  <div class="card"><h2>Backup e restauração</h2>
+    <div class="btns"><button class="pri" id="bx">Exportar backup</button><button id="bi">Importar backup</button></div>
+    <input type="file" id="bf2" accept="application/json,.json" hidden>
+    <div class="hint" id="bmsg">O arquivo fica no seu aparelho. Nada é enviado a servidor nenhum.</div></div>
+  <div class="card" id="relcard"><h2>Relatório do mês</h2>
+    <div class="btns"><button class="pri" id="rg">Gerar relatório</button></div>
+    <div id="rbox" hidden><div class="rel" id="rtxt"></div>
+      <div class="btns"><button id="rc">Copiar</button><button id="rs">Compartilhar</button><button id="rt">Baixar .txt</button><button id="rp">Salvar PDF</button></div>
+      <div class="hint" id="rm"></div></div></div>`;
+  const q=x=>box.querySelector(x);
+  q('#la').value=l.ativo?'1':'0'; q('#ld').value=String(l.dias); q('#lst').textContent=statusLembrete();
+  q('#la').onchange=async e=>{
+    l.ativo=e.target.value==='1';
+    if(l.ativo){ l.ultima=hoje(); await ativarNotificacoes(); }
+    salvar(); q('#lst').textContent=statusLembrete();
+  };
+  q('#ld').onchange=e=>{ l.dias=+e.target.value; salvar(); };
+  q('#bx').onclick=exportarJSON;
+  q('#bi').onclick=()=>q('#bf2').click();
+  q('#bf2').onchange=e=>{ if(e.target.files[0]) importarJSON(e.target.files[0],q('#bmsg')); e.target.value=''; };
+  let txt='';
+  q('#rg').onclick=()=>{ txt=textoRelatorio(); q('#rtxt').textContent=txt; q('#rbox').hidden=false; q('#rs').hidden=!navigator.share; };
+  q('#rc').onclick=async()=>{
+    try{ await navigator.clipboard.writeText(txt); q('#rm').textContent='Copiado ✔'; }
+    catch(e){ const r=document.createRange(); r.selectNodeContents(q('#rtxt')); const sl=getSelection(); sl.removeAllRanges(); sl.addRange(r); q('#rm').textContent='Selecionei o texto: use "Copiar" do Android.'; }
+  };
+  q('#rs').onclick=()=>navigator.share({title:'Balanceador — relatório',text:txt}).catch(()=>{});
+  q('#rt').onclick=()=>baixarArquivo('balanceador-relatorio-'+hoje()+'.txt',txt,'text/plain');
+  q('#rp').onclick=()=>{ document.body.classList.add('imp'); window.print(); };
+}
+addEventListener('afterprint',()=>document.body.classList.remove('imp'));
+
+/* ========== ABAS ========== */
+const TELAS = {inicio:desenharInicio, contas:desenharContas, lanc:desenharLanc, cal:desenharCal, extras:desenharExtras};
+function mostrarTela(t){
+  document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x.dataset.t===t));
+  Object.keys(TELAS).forEach(k=>document.getElementById(k).hidden = (k!==t));
+  TELAS[t]();
+}
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>mostrarTela(b.dataset.t));
+
+desenharInicio();
+</script>
+</body>
+</html>
