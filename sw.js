@@ -1,6 +1,6 @@
 /* Balanceador - service worker.
    Troque o número de CACHE quando publicar uma versão nova do app. */
-const CACHE = 'balanceador-v4';
+const CACHE = 'balanceador-v5';
 const ARQUIVOS = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e=>{

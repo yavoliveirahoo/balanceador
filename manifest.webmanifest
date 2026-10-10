@@ -1,5 +1,5 @@
 {
-  "id": "/balanceador/",
+  "id": "/balanceador/?app=2",
   "name": "Balanceador",
   "short_name": "Balanceador",
   "description": "Controle de 2 contas com sugestão de transferência entre elas",
