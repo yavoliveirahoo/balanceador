@@ -201,6 +201,12 @@ function agendarSync(){
   atualizarStatusSync();
 }
 
+/* Chave nova (sb_publishable_...) vai só no apikey; a chave antiga (JWT, eyJ...) vai também no Authorization. */
+function cabecalhosSync(){
+  const k=sync.key.trim(), h={'apikey':k, 'Content-Type':'application/json', 'Prefer':'return=minimal'};
+  if(!/^sb_/i.test(k)) h['Authorization']='Bearer '+k;
+  return h;
+}
 async function sincronizar(manual){
   clearTimeout(syncTimer);
   if(!syncConfigurado()){
@@ -220,7 +226,7 @@ async function sincronizar(manual){
   try{
     const r = await fetch(base + '/rest/v1/backups', {
       method:'POST', signal:ctl.signal,
-      headers:{'apikey':sync.key.trim(), 'Authorization':'Bearer '+sync.key.trim(), 'Content-Type':'application/json', 'Prefer':'return=minimal'},
+      headers: cabecalhosSync(),
       body: JSON.stringify({payload: montarBackup()})
     });
     if(!r.ok){
@@ -803,6 +809,26 @@ function baixarArquivo(nome,texto,tipo){
 function exportarJSON(){
   baixarArquivo('balanceador-'+hoje()+'.json', JSON.stringify(montarBackup(),null,2), 'application/json');
 }
+/* Abre o app de e-mail com o backup no corpo (mailto, sem servidor). JSON compacto: o conteúdo é o mesmo do Exportar, só sem recuos. */
+const EMAIL_BACKUP = 'vladimir.souza@gmail.com', EMAIL_MAX = 50000; // limite prático estimado do link; acima disso vai como arquivo
+async function enviarBackupEmail(msgEl){
+  const json = JSON.stringify(montarBackup());
+  const url = 'mailto:'+EMAIL_BACKUP+'?subject='+encodeURIComponent('Balanceador backup')+'&body='+encodeURIComponent(json);
+  if(url.length > EMAIL_MAX){
+    const nome='balanceador-'+hoje()+'.json';
+    try{
+      const f=new File([JSON.stringify(montarBackup(),null,2)], nome, {type:'application/json'});
+      if(navigator.canShare && navigator.canShare({files:[f]})){
+        await navigator.share({files:[f], title:'Balanceador backup'});
+        msgEl.textContent='O backup é grande demais para o corpo do e-mail, então abri o menu de compartilhar. Escolha o e-mail e envie o arquivo.'; return;
+      }
+    }catch(e){ if(e && e.name==='AbortError') return; }
+    exportarJSON();
+    msgEl.textContent='O backup é grande demais para o corpo do e-mail. Baixei o arquivo: anexe ele num e-mail para '+EMAIL_BACKUP+'.'; return;
+  }
+  const a=document.createElement('a'); a.href=url; document.body.appendChild(a); a.click(); a.remove();
+  msgEl.textContent='Abrindo o app de e-mail… Se nada abrir, use Exportar backup e anexe o arquivo.';
+}
 function importarJSON(arquivo,msgEl){
   const rd=new FileReader();
   rd.onload=()=>{
@@ -857,7 +883,7 @@ function desenharExtras(){
     </div>
     <div class="hint" id="lst"></div></div>
   <div class="card"><h2>Backup e restauração</h2>
-    <div class="btns"><button class="pri" id="bx">Exportar backup</button><button id="bi">Importar backup</button></div>
+    <div class="btns"><button class="pri" id="bx">Exportar backup</button><button id="bi">Importar backup</button><button id="be">Enviar backup por e-mail</button></div>
     <input type="file" id="bf2" accept="application/json,.json" hidden>
     <div class="hint" id="bmsg">O arquivo fica no seu aparelho. Nada é enviado a servidor nenhum.</div></div>
   <div class="card"><h2>Sincronização automática</h2>
@@ -892,6 +918,7 @@ function desenharExtras(){
   q('#sgo').onclick=()=>sincronizar(true);
   atualizarStatusSync();
   q('#bx').onclick=exportarJSON;
+  q('#be').onclick=()=>enviarBackupEmail(q('#bmsg'));
   q('#bi').onclick=()=>q('#bf2').click();
   q('#bf2').onchange=e=>{ if(e.target.files[0]) importarJSON(e.target.files[0],q('#bmsg')); e.target.value=''; };
   let txt='';
