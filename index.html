@@ -61,6 +61,7 @@ select{width:100%;background:#0f1115;color:var(--tx);border:1px solid var(--line
 .ico{display:inline-flex;align-items:center;justify-content:center;border-radius:6px;object-fit:cover;color:#fff;font-weight:700;vertical-align:middle;margin-right:8px;flex:none;letter-spacing:0}
 .icorow{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap}.icorow .ico{margin-right:4px}
 .mini{background:var(--card);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font:inherit;font-size:13px;cursor:pointer}
+label.sw{display:flex;align-items:center;gap:10px;color:var(--tx);margin:14px 0 0;cursor:pointer}label.sw input{width:20px;height:20px;flex:none;accent-color:var(--acc)}
 .rel{white-space:pre-wrap;font:13px/1.5 ui-monospace,Menlo,Consolas,monospace;background:#0f1115;border:1px solid var(--line);border-radius:10px;padding:12px;margin:12px 0;overflow-x:auto}
 #extras .btns{flex-wrap:wrap}
 @media print{
@@ -104,7 +105,7 @@ select{width:100%;background:#0f1115;color:var(--tx);border:1px solid var(--line
   <section id="cal" hidden></section>
   <section id="extras" hidden></section>
 
-  <p class="priv">🔒 Seus dados ficam só neste navegador (localStorage). Nada é enviado a nenhum servidor.</p>
+  <p class="priv" id="priv">🔒 Seus dados ficam só neste navegador (localStorage). Nada é enviado a nenhum servidor.</p>
 </main>
 <div id="toast">Salvo ✔</div>
 <div id="modal" hidden></div>
@@ -154,11 +155,89 @@ function carregar(){
   catch(e){ return estadoPadrao(); }
 }
 function salvar(){
-  try{ localStorage.setItem(CHAVE, JSON.stringify(estado)); mostrarToast(); syncLembrete(); }
+  try{ localStorage.setItem(CHAVE, JSON.stringify(estado)); mostrarToast(); syncLembrete(); agendarSync(); }
   catch(e){ console.error('Não foi possível salvar', e); }
 }
 
 let estado = carregar();
+
+/* ========== SINCRONIZAÇÃO AUTOMÁTICA (Supabase) ==========
+   URL e chave ficam em uma chave PRÓPRIA do localStorage (balanceador.sync): não entram no backup
+   exportado e gravá-las NÃO chama salvar(), então o registro de "última sincronização" nunca dispara outra sincronização. */
+const CHAVE_SYNC = 'balanceador.sync';
+const SYNC_ESPERA = 10000; // debounce: 10 s depois da última mudança
+function lerSync(){
+  const base = {url:'', key:'', auto:true, ultima:null, pendente:false};
+  try{ return Object.assign(base, JSON.parse(localStorage.getItem(CHAVE_SYNC)||'{}')); }catch(e){ return base; }
+}
+function gravarSync(){ try{ localStorage.setItem(CHAVE_SYNC, JSON.stringify(sync)); }catch(e){} }
+let sync = lerSync(), syncTimer = null, syncVoo = false, syncMsg = '';
+
+function syncConfigurado(){ return !!(sync.url.trim() && sync.key.trim()); }
+function urlBaseSync(){ return sync.url.trim().replace(/\/+$/,'').replace(/\/rest\/v1$/,''); }
+/* O MESMO conteúdo do botão "Exportar backup". */
+function montarBackup(){ return {app:'balanceador', exportadoEm:new Date().toISOString(), ...estado}; }
+
+function textoStatusSync(){
+  let t = 'Última sincronização: ' + (sync.ultima ? new Date(sync.ultima).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'}) : 'nunca');
+  if(sync.pendente && syncConfigurado()) t += ' · sincronização pendente';
+  return t;
+}
+function atualizarStatusSync(){
+  const a=document.getElementById('sst'), b=document.getElementById('smsg'), c=document.getElementById('priv');
+  if(a) a.textContent = textoStatusSync();
+  if(b) b.textContent = syncMsg;
+  if(c) c.textContent = syncConfigurado()
+    ? '🔒 Seus dados ficam neste navegador. Com a sincronização configurada, uma cópia também é enviada ao seu projeto Supabase.'
+    : '🔒 Seus dados ficam só neste navegador (localStorage). Nada é enviado a nenhum servidor.';
+}
+
+/* Chamada por salvar() a cada mudança: espera 10 s sem novas mudanças e então envia. */
+function agendarSync(){
+  if(!sync.auto || !syncConfigurado()) return;
+  sync.pendente = true; gravarSync();   // se o app fechar antes dos 10 s, tenta de novo ao abrir
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(()=>sincronizar(false), SYNC_ESPERA);
+  atualizarStatusSync();
+}
+
+async function sincronizar(manual){
+  clearTimeout(syncTimer);
+  if(!syncConfigurado()){
+    if(manual){ syncMsg='Preencha a URL do projeto e a chave anônima antes de sincronizar.'; atualizarStatusSync(); }
+    return;
+  }
+  const base = urlBaseSync();
+  if(!/^https:\/\/[^\s/]+/i.test(base)){ syncMsg='A URL do projeto deve começar com https:// (ex.: https://abcd1234.supabase.co).'; atualizarStatusSync(); return; }
+  if(syncVoo){ syncTimer = setTimeout(()=>sincronizar(manual), 2000); return; } // já tem um envio em andamento
+  if(!navigator.onLine){
+    sync.pendente = true; gravarSync();
+    syncMsg='Sem internet agora. Fica pendente e tento de novo sozinho quando a conexão voltar ou ao abrir o app.';
+    atualizarStatusSync(); return;
+  }
+  syncVoo = true; syncMsg = manual ? 'Sincronizando…' : ''; atualizarStatusSync();
+  const ctl = new AbortController(), cortar = setTimeout(()=>ctl.abort(), 20000);
+  try{
+    const r = await fetch(base + '/rest/v1/backups', {
+      method:'POST', signal:ctl.signal,
+      headers:{'apikey':sync.key.trim(), 'Authorization':'Bearer '+sync.key.trim(), 'Content-Type':'application/json', 'Prefer':'return=minimal'},
+      body: JSON.stringify({payload: montarBackup()})
+    });
+    if(!r.ok){
+      sync.pendente = true; gravarSync();
+      syncMsg = r.status===401||r.status===403 ? 'O Supabase recusou (erro '+r.status+'). Confira a chave anônima e a política (RLS) de INSERT da tabela backups.'
+              : r.status===404 ? 'Tabela "backups" não encontrada (erro 404). Confira a URL do projeto e se a tabela foi criada.'
+              : 'O Supabase respondeu com erro '+r.status+'. Fica pendente e tento de novo depois.';
+    }else{
+      sync.ultima = new Date().toISOString(); sync.pendente = false; gravarSync(); // NÃO usa salvar(): sem loop
+      syncMsg = manual ? 'Sincronizado ✔' : '';
+    }
+  }catch(e){
+    sync.pendente = true; gravarSync();
+    syncMsg = e.name==='AbortError' ? 'O envio demorou demais e foi cancelado. Fica pendente.' : 'Não consegui falar com o Supabase (internet ou URL). Fica pendente e tento de novo depois.';
+  }finally{ clearTimeout(cortar); syncVoo = false; atualizarStatusSync(); }
+}
+addEventListener('online', ()=>{ if(sync.pendente && sync.auto && syncConfigurado()) sincronizar(false); });
 
 /* ========== UTILITÁRIOS ========== */
 const fmt = new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -722,7 +801,7 @@ function baixarArquivo(nome,texto,tipo){
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
 }
 function exportarJSON(){
-  baixarArquivo('balanceador-'+hoje()+'.json', JSON.stringify({app:'balanceador',exportadoEm:new Date().toISOString(),...estado},null,2), 'application/json');
+  baixarArquivo('balanceador-'+hoje()+'.json', JSON.stringify(montarBackup(),null,2), 'application/json');
 }
 function importarJSON(arquivo,msgEl){
   const rd=new FileReader();
@@ -781,6 +860,15 @@ function desenharExtras(){
     <div class="btns"><button class="pri" id="bx">Exportar backup</button><button id="bi">Importar backup</button></div>
     <input type="file" id="bf2" accept="application/json,.json" hidden>
     <div class="hint" id="bmsg">O arquivo fica no seu aparelho. Nada é enviado a servidor nenhum.</div></div>
+  <div class="card"><h2>Sincronização automática</h2>
+    <label for="surl">URL do projeto</label>
+    <input id="surl" type="url" inputmode="url" placeholder="https://xxxx.supabase.co" autocomplete="off" autocapitalize="none" spellcheck="false">
+    <label for="skey">Chave anônima (anon key)</label>
+    <input id="skey" type="text" placeholder="eyJ..." autocomplete="off" autocapitalize="none" spellcheck="false">
+    <label class="sw" for="sauto"><input type="checkbox" id="sauto"><span>Sincronizar automaticamente a cada mudança</span></label>
+    <div class="btns"><button class="pri" id="sgo">Sincronizar agora</button></div>
+    <div class="hint" id="sst"></div>
+    <div class="hint" id="smsg"></div></div>
   <div class="card"><h2>Instalação no celular</h2>
     <div class="btns"><button class="pri" id="vi">Verificar instalação</button></div>
     <div id="vsaida"></div></div>
@@ -797,6 +885,12 @@ function desenharExtras(){
     salvar(); q('#lst').textContent=statusLembrete();
   };
   q('#ld').onchange=e=>{ l.dias=+e.target.value; salvar(); };
+  q('#surl').value=sync.url; q('#skey').value=sync.key; q('#sauto').checked=!!sync.auto;
+  q('#surl').oninput=e=>{ sync.url=e.target.value; gravarSync(); atualizarStatusSync(); };
+  q('#skey').oninput=e=>{ sync.key=e.target.value; gravarSync(); atualizarStatusSync(); };
+  q('#sauto').onchange=e=>{ sync.auto=e.target.checked; gravarSync(); if(sync.auto) agendarSync(); else clearTimeout(syncTimer); };
+  q('#sgo').onclick=()=>sincronizar(true);
+  atualizarStatusSync();
   q('#bx').onclick=exportarJSON;
   q('#bi').onclick=()=>q('#bf2').click();
   q('#bf2').onchange=e=>{ if(e.target.files[0]) importarJSON(e.target.files[0],q('#bmsg')); e.target.value=''; };
@@ -836,6 +930,8 @@ function mostrarTela(t){
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>mostrarTela(b.dataset.t));
 
 desenharInicio();
+atualizarStatusSync();
+if(sync.pendente && sync.auto && syncConfigurado()) setTimeout(()=>sincronizar(false), 2500); // tenta de novo ao abrir
 </script>
 </body>
 </html>
