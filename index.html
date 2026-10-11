@@ -79,7 +79,7 @@ label.sw{display:flex;align-items:center;gap:10px;color:var(--tx);margin:14px 0 
 .cd.past{opacity:.55}.cd.crit{background:#3b1d1d;border-color:#f87171}.cd.hoje{outline:2px solid var(--acc)}.cd.sel{border-color:var(--acc);background:#1d2636}
 .cd .sd{margin-top:auto;color:var(--mut)}
 .ch{border-radius:4px;padding:0 3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:10px}
-.ch.r{background:#12372b;color:#6ee7b7}.ch.d{background:#3b1d1d;color:#fca5a5}.ch.b{background:#3a2f0e;color:#fcd34d;border:1px solid #fbbf24}
+.ch.r{background:#12372b;color:#6ee7b7}.ch.d{background:#3b1d1d;color:#fca5a5}.ch.b{background:#3a2f0e;color:#fcd34d;border:1px solid #fbbf24}.ch.i{background:#12263d;color:#93c5fd;border:1px solid #60a5fa}
 .saldo-dia{margin:12px 0 4px;padding-top:10px;border-top:1px solid var(--line)}
 .ls li.opx{border-top:0;padding-top:0}
 .kv{display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;border-top:1px solid var(--line)}
@@ -127,7 +127,10 @@ function estadoPadrao(){
     // freq: once | weekly | biweekly | monthly | yearly | days (usa 'cada' = X dias)
     lancamentos: [],
     metaPoupanca: 300,  // CA$ por mês a guardar além dos colchões (0 = desligado)
-    lembrete: {ativo:false, dias:7, ultima:null} // lembrete de conferir saldos
+    lembrete: {ativo:false, dias:7, ultima:null}, // lembrete de conferir saldos
+    // Contas de INVESTIMENTO: ficam FORA do motor (rebalanceamento, projeção, fluxo, poupança). Só as transferências entram, como lançamentos nas contas principais.
+    // {id, nome, valor, movs:[{id, data, tipo:'aporte'|'resgate', valor, conta}]}
+    investimentos: []
   };
 }
 
@@ -147,6 +150,7 @@ function migrar(s){
   s.dispensado = s.dispensado || null; // chave da sugestão de balanço dispensada (NÃO)
   if(typeof s.metaPoupanca!=='number') s.metaPoupanca = 300;
   if(!s.lembrete) s.lembrete = {ativo:false, dias:7, ultima:null};
+  s.investimentos = (Array.isArray(s.investimentos)?s.investimentos:[]).filter(i=>i&&typeof i==='object').map(i=>({id:i.id||Math.random().toString(36).slice(2,9), nome:String(i.nome||'Investimento'), valor:Number(i.valor)||0, movs:Array.isArray(i.movs)?i.movs:[]}));
   return s;
 }
 
@@ -312,6 +316,76 @@ function desenharContas(){
     estado.metaPoupanca = Math.max(0, paraNumero(e.target.value));
     e.target.value = paraTexto(estado.metaPoupanca); salvar();
   });
+  desenharInvest(box);
+}
+
+/* ========== CONTAS DE INVESTIMENTO ==========
+   Ficam fora do motor (rebalanceamento, projeção, fluxo, poupança). Só os lançamentos de transferência nas contas principais entram. */
+let invForm = null, invDel = null;   // invForm: null | {id?} (formulário aberto)
+function desenharInvest(box){
+  const ed = invForm && invForm.id && estado.investimentos.find(i=>i.id===invForm.id);
+  const lin = i=>{
+    const u = i.movs.slice(-1)[0], c = u && contaPorId(u.conta);
+    const sub = u ? (u.tipo==='aporte'?'Último aporte':'Último resgate')+' · '+(c?esc(c.nome):'?')+' · '+dataBR(u.data)+' · '+cur(u.valor) : 'sem movimentos';
+    return `<li><div class="d"><b>${esc(i.nome)}</b><span>${sub}</span></div><div class="v">${cur(i.valor)}</div><button data-ia="tr" data-id="${i.id}" title="Transferir">⇄</button><button data-ia="ed" data-id="${i.id}" title="Editar">✏️</button><button data-ia="del" data-id="${i.id}" title="Excluir">🗑️</button></li>`;
+  };
+  const d=document.createElement('div'); d.className='card';
+  d.innerHTML=`<h2>Investimentos</h2>
+    ${estado.investimentos.length ? '<ul class="ls">'+estado.investimentos.map(lin).join('')+'</ul>' : '<div class="hint">Nenhuma conta de investimento ainda.</div>'}
+    ${invForm ? `<label for="in">Nome da conta</label><input id="in" maxlength="30" placeholder="Ex.: TFSA, RRSP, Cripto">
+      <label for="iv">Valor investido (CA$)</label><input id="iv" inputmode="decimal" placeholder="0,00">
+      <div class="btns"><button class="pri" id="is">Salvar</button><button id="ic">Cancelar</button></div><div class="hint" id="ie" style="color:#f87171"></div>`
+      : '<div class="btns"><button id="inw">Nova conta de investimento</button></div>'}
+    <div class="hint">O saldo parado aqui NÃO entra no rebalanceamento, na projeção, no fluxo diário nem na meta de poupança. Só as transferências (⇄) entram: a saída ou a entrada vira lançamento na conta RBC/EQ Bank.</div>`;
+  box.appendChild(d);
+  const q=s=>d.querySelector(s);
+  if(ed){ q('#in').value=ed.nome; q('#iv').value=paraTexto(ed.valor); }
+  const nw=q('#inw'); if(nw) nw.onclick=()=>{ invForm={}; desenharContas(); };
+  const ic=q('#ic'); if(ic) ic.onclick=()=>{ invForm=null; desenharContas(); };
+  const is=q('#is'); if(is) is.onclick=()=>{
+    const nome=q('#in').value.trim(), valor=paraNumero(q('#iv').value);
+    if(!nome){ q('#ie').textContent='Coloca o nome da conta.'; return; }
+    if(valor<0){ q('#ie').textContent='O valor não pode ser negativo.'; return; }
+    if(ed){ ed.nome=nome; ed.valor=r2(valor); }
+    else estado.investimentos.push({id:uid(), nome, valor:r2(valor), movs:[]});
+    invForm=null; salvar(); desenharContas();
+  };
+  d.querySelectorAll('[data-ia]').forEach(b=>b.onclick=()=>{
+    const id=b.dataset.id, a=b.dataset.ia, inv=estado.investimentos.find(i=>i.id===id);
+    if(a==='tr'){ dialogoInvest(inv); return; }
+    if(a==='ed'){ invForm={id}; desenharContas(); scrollTo(0,document.body.scrollHeight); return; }
+    // Excluir em 2 toques (os lançamentos já feitos nas contas principais continuam lá)
+    if(invDel===id){ estado.investimentos=estado.investimentos.filter(i=>i.id!==id); if(invForm&&invForm.id===id) invForm=null; invDel=null; salvar(); desenharContas(); }
+    else{ invDel=id; b.innerHTML='<b class="conf">Excluir?</b>'; setTimeout(()=>{ if(invDel===id){ invDel=null; b.innerHTML='🗑️'; } },3000); }
+  });
+}
+/* Transferência nos dois sentidos. O lado da conta principal vira lançamento de hoje (entra no motor); o lado do investimento só muda o valor da conta e guarda o movimento. */
+function dialogoInvest(inv){
+  const m=document.getElementById('modal');
+  m.innerHTML=`<div class="box"><p class="q">Transferir · ${esc(inv.nome)}</p>
+    <label for="ts">Sentido</label><select id="ts"><option value="aporte">Conta principal → ${esc(inv.nome)}</option><option value="resgate">${esc(inv.nome)} → conta principal</option></select>
+    <label for="tc">Conta principal</label><select id="tc">${estado.contas.map(c=>`<option value="${c.id}">${esc(c.nome)}</option>`).join('')}</select>
+    <label for="tv">Valor (CA$)</label><input id="tv" inputmode="decimal" placeholder="0,00">
+    <div class="hint" id="te" style="color:#f87171"></div>
+    <div class="hint">Vira um lançamento de hoje na conta principal. Se você já atualizou o saldo atual depois de mover o dinheiro, apague o lançamento ou ajuste o saldo para não contar duas vezes.</div>
+    <div class="btns"><button class="pri" id="tok">Confirmar</button><button id="tno">Cancelar</button></div></div>`;
+  m.hidden=false;
+  const q=x=>m.querySelector(x);
+  m.onclick=e=>{ if(e.target===m) fecharModal(); };
+  q('#tno').onclick=fecharModal;
+  q('#tok').onclick=()=>{
+    const v=r2(paraNumero(q('#tv').value)), sentido=q('#ts').value;
+    if(v<=0){ q('#te').textContent='Digita um valor maior que zero.'; return; }
+    if(sentido==='resgate' && v>inv.valor){ q('#te').textContent='Essa conta de investimento tem só '+cur(inv.valor)+'.'; return; }
+    registrarInvest(inv, q('#tc').value, sentido, v);
+  };
+}
+function registrarInvest(inv, contaId, sentido, valor){
+  const c=contaPorId(contaId), aporte=sentido==='aporte', gid=uid(), d=hoje();
+  estado.lancamentos.push({id:uid(), conta:c.id, tipo:aporte?'despesa':'receita', desc:(aporte?'Aporte · ':'Resgate · ')+inv.nome, freq:'once', inicio:d, valor, invest:{gid, inv:inv.id, sentido}});
+  inv.valor=r2(inv.valor + (aporte?valor:-valor));
+  inv.movs.push({id:gid, data:d, tipo:sentido, valor, conta:c.id});
+  salvar(); fecharModal(); desenharContas();
 }
 
 /* ========== PWA: service worker (offline + lembretes) ========== */
@@ -359,7 +433,7 @@ function quando(x){
 
 function lista(items){
   if(!items.length) return '<div class="hint">Nada aqui ainda.</div>';
-  return '<ul class="ls">'+items.map(x=>`<li><div class="d"><b>${esc(nomeLanc(x))}</b><span>${quando(x)}</span></div><div class="v ${x.tipo}">${x.tipo==='receita'?'+':'−'} ${cur(x.valor)}</div>${x.balanco?'':`<button data-a="ed" data-id="${x.id}" title="Editar">✏️</button>`}<button data-a="del" data-id="${x.id}" title="Excluir">🗑️</button></li>`).join('')+'</ul>';
+  return '<ul class="ls">'+items.map(x=>`<li><div class="d"><b>${esc(nomeLanc(x))}</b><span>${quando(x)}</span></div><div class="v ${x.tipo}">${x.tipo==='receita'?'+':'−'} ${cur(x.valor)}</div>${ehTransf(x)?'':`<button data-a="ed" data-id="${x.id}" title="Editar">✏️</button>`}<button data-a="del" data-id="${x.id}" title="Excluir">🗑️</button></li>`).join('')+'</ul>';
 }
 
 function desenharLanc(){
@@ -418,6 +492,7 @@ function desenharLanc(){
     // Excluir em 2 toques (confirm() é bloqueado em páginas embutidas)
     if(apagar===id){
       const alvo=estado.lancamentos.find(x=>x.id===id); // Balanço: apaga a saída e a entrada juntas
+      desfazerInvest(alvo);
       estado.lancamentos=estado.lancamentos.filter(x=>x.id!==id && !(alvo&&alvo.balanco&&x.balanco&&x.balanco.gid===alvo.balanco.gid));
       if(editando===id) editando=null;
       apagar=null; salvar(); desenharLanc();
@@ -490,12 +565,12 @@ function fluxoDiario(conta){
   }
   return dias;
 }
-/* Resumo do mês (as 2 contas juntas). Balanço não entra: só move dinheiro de uma conta para a outra. */
+/* Resumo do mês (as 2 contas juntas). Balanço e transferências de investimento não entram nas somas: só movem dinheiro. */
 function resumoMes(){
   const h=hoje(), ini=h.slice(0,8)+'01', fim=fimDoMes(h);
   const t={rec:0,desp:0,faltaRec:0,faltaDesp:0,proj:0};
   estado.contas.forEach(c=>{
-    estado.lancamentos.filter(l=>l.conta===c.id && !l.balanco).forEach(l=>{
+    estado.lancamentos.filter(l=>l.conta===c.id && !ehTransf(l)).forEach(l=>{
       const v=ocorrencias(l,ini,fim).length*l.valor, f=ocorrencias(l,h,fim).length*l.valor;
       if(l.tipo==='receita'){t.rec+=v;t.faltaRec+=f;} else {t.desp+=v;t.faltaDesp+=f;}
     });
@@ -582,6 +657,17 @@ function ligarFluxo(){
 function curto(c){ return c.nome.split(' ')[0]; }                 // "EQ Bank" -> "EQ"
 function contaPorId(id){ return estado.contas.find(c=>c.id===id); }
 function curv(n){ return Number.isInteger(n) ? 'CA$ '+n.toLocaleString('pt-BR') : cur(n); }
+/* Transferência = Balanço entre contas OU aporte/resgate de investimento. Não são editáveis e não entram nas somas de receitas/despesas. */
+const ehTransf = l => !!(l && (l.balanco || l.invest));
+const totalInvest = () => r2(estado.investimentos.reduce((t,i)=>t+i.valor,0));   // só visualização
+/* Apagar o lançamento de uma transferência de investimento desfaz o movimento na conta de investimento. */
+function desfazerInvest(l){
+  if(!l || !l.invest) return;
+  const inv=estado.investimentos.find(i=>i.id===l.invest.inv); if(!inv) return;
+  const m=inv.movs.find(x=>x.id===l.invest.gid); if(!m) return;
+  inv.valor=Math.max(0, r2(inv.valor + (m.tipo==='aporte' ? -m.valor : m.valor)));
+  inv.movs=inv.movs.filter(x=>x!==m);
+}
 function nomeLanc(x){
   if(!x.balanco) return x.desc;
   const a=contaPorId(x.balanco.de), b=contaPorId(x.balanco.para);
@@ -625,7 +711,8 @@ function cardResumo(){
     <div class="kv"><span>Receitas do mês</span><b class="v receita">+ ${cur(r.rec)}</b></div>
     <div class="kv"><span>Despesas do mês</span><b class="v despesa">− ${cur(r.desp)}</b></div>
     <div class="kv"><span>Saldo combinado projetado (fim do mês)</span><b>${cur(r.proj)}</b></div>
-    <div class="hint">Ainda falta entrar +${cur(r.faltaRec)} e sair −${cur(r.faltaDesp)} (contando hoje). Balanços entre contas não entram nas somas.</div></div>`;
+    <div class="kv"><span>Investimentos do mês</span><b>${cur(totalInvest())}</b></div>
+    <div class="hint">Ainda falta entrar +${cur(r.faltaRec)} e sair −${cur(r.faltaDesp)} (contando hoje). Balanços e transferências de/para investimentos não entram nas somas de receitas e despesas. Investimentos: só visualização.</div></div>`;
 }
 function cardAtalhos(){
   return `<div class="card"><h2>Calendários do mês</h2><div class="btns">${estado.contas.map((c,i)=>`<button data-cal="${i}">${ico(c,20)}${esc(c.nome)}</button>`).join('')}</div></div>`;
@@ -686,6 +773,7 @@ const numCurto=n=>Math.round(n).toLocaleString('pt-BR');
 function celulaCal(d){
   const chips=d.itens.slice(0,3).map(l=> l.balanco
     ? `<span class="ch b" title="Balanço">${esc(nomeLanc(l).replace('Balanço · ',''))}</span>`
+    : l.invest ? `<span class="ch i" title="${esc(l.desc)}">${l.tipo==='receita'?'+':'−'}${numCurto(l.valor)}</span>`
     : `<span class="ch ${l.tipo==='receita'?'r':'d'}" title="${esc(l.desc)}">${l.tipo==='receita'?'+':'−'}${numCurto(l.valor)}</span>`).join('')
     + (d.itens.length>3?`<span class="ch">+${d.itens.length-3}</span>`:'');
   return `<button class="cd ${d.passado?'past':''} ${d.critico?'crit':''} ${d.data===hoje()?'hoje':''} ${d.data===calSel?'sel':''}" data-d="${d.data}"><span class="n">${d.dia}</span>${chips}<span class="sd">${numCurto(d.saldo)}</span></button>`;
@@ -699,7 +787,7 @@ function desenharCal(){
     <div class="seg">${estado.contas.map((x,i)=>`<button data-cc="${i}" class="${i===calConta?'on':''}">${ico(x,20)}${esc(x.nome)}</button>`).join('')}</div>
     <div class="nav"><button id="cp" aria-label="Mês anterior">‹</button><b>${MESES[calM-1]} de ${calY}</b><button id="cn" aria-label="Próximo mês">›</button></div>
     <div class="cal">${DSEM.map(d=>`<div class="sem">${d}</div>`).join('')}${'<div></div>'.repeat(pad)}${dias.map(celulaCal).join('')}</div>
-    <div class="hint" style="margin:8px 0 14px">Cinza = realizado · normal = projeção · vermelho = abaixo do colchão · amarelo = Balanço. O número de baixo de cada dia é o saldo dele.</div>
+    <div class="hint" style="margin:8px 0 14px">Cinza = realizado · normal = projeção · vermelho = abaixo do colchão · amarelo = Balanço · azul = investimento. O número de baixo de cada dia é o saldo dele.</div>
     <div id="cdet"></div>`;
   desenharDet(dias,c);
   box.querySelectorAll('[data-cc]').forEach(b=>b.onclick=()=>{calConta=+b.dataset.cc;calForm=calDel=null;desenharCal();});
@@ -711,12 +799,12 @@ function desenharCal(){
 function linhaDia(l){
   let ops='';
   if(calDel===l.id){
-    ops = (l.freq!=='once' && !l.balanco)
+    ops = (l.freq!=='once' && !ehTransf(l))
       ? `<li class="opx"><div class="opc"><button data-a="x1" data-id="${l.id}">Só este dia</button><button class="perigo" data-a="xa" data-id="${l.id}">Todas as repetições</button><button data-a="xc">Cancelar</button></div></li>`
-      : `<li class="opx"><div class="opc"><button class="perigo" data-a="xa" data-id="${l.id}">${l.balanco?'Excluir o Balanço (nas duas contas)':'Excluir'}</button><button data-a="xc">Cancelar</button></div></li>`;
+      : `<li class="opx"><div class="opc"><button class="perigo" data-a="xa" data-id="${l.id}">${l.balanco?'Excluir o Balanço (nas duas contas)':l.invest?'Excluir (desfaz no investimento)':'Excluir'}</button><button data-a="xc">Cancelar</button></div></li>`;
   }
-  const sub = l.balanco ? 'transferência entre contas' : (l.freq==='once' ? 'só neste dia' : 'repete: '+quando(l));
-  return `<li><div class="d"><b>${esc(nomeLanc(l))}</b><span>${sub}</span></div><div class="v ${l.tipo}">${l.tipo==='receita'?'+':'−'} ${cur(l.valor)}</div>${l.balanco?'':`<button data-a="ed" data-id="${l.id}" title="Editar">✏️</button>`}<button data-a="del" data-id="${l.id}" title="Excluir">🗑️</button></li>${ops}`;
+  const sub = l.balanco ? 'transferência entre contas' : l.invest ? 'transferência de investimento' : (l.freq==='once' ? 'só neste dia' : 'repete: '+quando(l));
+  return `<li><div class="d"><b>${esc(nomeLanc(l))}</b><span>${sub}</span></div><div class="v ${l.tipo}">${l.tipo==='receita'?'+':'−'} ${cur(l.valor)}</div>${ehTransf(l)?'':`<button data-a="ed" data-id="${l.id}" title="Editar">✏️</button>`}<button data-a="del" data-id="${l.id}" title="Excluir">🗑️</button></li>${ops}`;
 }
 
 function desenharDet(dias,c){
@@ -757,6 +845,7 @@ function desenharDet(dias,c){
     else if(a==='xc'){calDel=null;desenharDet(dias,c);}
     else if(a==='x1'){l.excecoes=(l.excecoes||[]).concat(calSel);calDel=null;salvar();desenharCal();}
     else if(a==='xa'){
+      desfazerInvest(l);
       estado.lancamentos=estado.lancamentos.filter(x=>x.id!==id && !(l.balanco&&x.balanco&&x.balanco.gid===l.balanco.gid));
       calDel=null; salvar(); desenharCal();
     }
@@ -853,12 +942,12 @@ function textoRelatorio(){
     const dias=calendarioMes(c,y,m), p=projecaoMes(c), st=ST[statusDe(p.proj,c.colchao)][0], fl=fluxoDiario(c);
     const pior=fl.reduce((a,b)=>b.saldo<a.saldo?b:a);
     let rec=0, desp=0;
-    dias.forEach(d=>d.itens.filter(l=>!l.balanco).forEach(l=>{ if(l.tipo==='receita') rec+=l.valor; else desp+=l.valor; }));
+    dias.forEach(d=>d.itens.filter(l=>!ehTransf(l)).forEach(l=>{ if(l.tipo==='receita') rec+=l.valor; else desp+=l.valor; }));
     L.push(c.nome.toUpperCase(),
       '  Saldo atual: '+q(c.saldo)+'   Colchão: '+q(c.colchao),
       '  Projeção de fim de mês: '+q(p.proj)+' ('+st+')',
       '  Pior dia até o fim do mês: dia '+pior.dia+', com '+q(pior.saldo),
-      '  Receitas do mês: '+q(r2(rec))+'   Despesas do mês: '+q(r2(desp))+' (sem Balanços)');
+      '  Receitas do mês: '+q(r2(rec))+'   Despesas do mês: '+q(r2(desp))+' (sem Balanços e transferências de investimento)');
     const al=alertaCritico(c,fl); if(al) L.push('  '+al);
     L.push('  Lançamentos do mês:');
     const linhas=[];
