@@ -106,7 +106,7 @@ label.sw{display:flex;align-items:center;gap:10px;color:var(--tx);margin:14px 0 
   <section id="extras" hidden></section>
 
   <p class="priv" id="priv">🔒 Seus dados ficam só neste navegador (localStorage). Nada é enviado a nenhum servidor.</p>
-  <p class="priv" id="ver">Versão do app: 11 · com Investimentos</p>
+  <p class="priv" id="ver">Versão do app: 12 · com Investimentos</p>
 </main>
 <div id="toast">Salvo ✔</div>
 <div id="modal" hidden></div>
@@ -381,8 +381,8 @@ function dialogoInvest(inv){
     registrarInvest(inv, q('#tc').value, sentido, v);
   };
 }
-function registrarInvest(inv, contaId, sentido, valor, depois){
-  const c=contaPorId(contaId), aporte=sentido==='aporte', gid=uid(), d=hoje();
+function registrarInvest(inv, contaId, sentido, valor, depois, data){
+  const c=contaPorId(contaId), aporte=sentido==='aporte', gid=uid(), d=data||hoje();
   estado.lancamentos.push({id:uid(), conta:c.id, tipo:aporte?'despesa':'receita', desc:(aporte?'Aporte · ':'Resgate · ')+inv.nome, freq:'once', inicio:d, valor, invest:{gid, inv:inv.id, sentido, aplicado:true}});
   c.saldo=r2(c.saldo + (aporte?-valor:valor));   // saldo atual da conta principal acompanha a transferência
   inv.valor=r2(inv.valor + (aporte?valor:-valor));
@@ -824,7 +824,7 @@ function linhaDia(l){
       : `<li class="opx"><div class="opc"><button class="perigo" data-a="xa" data-id="${l.id}">${l.balanco?'Excluir o Balanço (nas duas contas)':l.invest?'Excluir (desfaz no investimento e no saldo)':'Excluir'}</button><button data-a="xc">Cancelar</button></div></li>`;
   }
   const sub = l.balanco ? 'transferência entre contas' : l.invest ? 'transferência de investimento' : (l.freq==='once' ? 'só neste dia' : 'repete: '+quando(l));
-  return `<li><div class="d"><b>${esc(nomeLanc(l))}</b><span>${sub}</span></div><div class="v ${l.tipo}">${l.tipo==='receita'?'+':'−'} ${cur(l.valor)}</div>${ehTransf(l)?'':`<button data-a="ed" data-id="${l.id}" title="Editar">✏️</button>`}<button data-a="del" data-id="${l.id}" title="Excluir">🗑️</button></li>${ops}`;
+  return `<li><div class="d"><b>${esc(nomeLanc(l))}</b><span>${sub}</span></div><div class="v ${l.tipo}">${l.tipo==='receita'?'+':'−'} ${cur(l.valor)}</div>${l.balanco?'':`<button data-a="ed" data-id="${l.id}" title="Editar">✏️</button>`}<button data-a="del" data-id="${l.id}" title="Excluir">🗑️</button></li>${ops}`;
 }
 
 function desenharDet(dias,c){
@@ -834,10 +834,19 @@ function desenharDet(dias,c){
   const [y,m,dd]=d.data.split('-').map(Number);
   const tit=new Date(Date.UTC(y,m-1,dd)).toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long',timeZone:'UTC'});
   const f = calForm && calForm.id ? estado.lancamentos.find(x=>x.id===calForm.id) : null;
+  // Transfer Invest: só hoje ou dia passado (ela atualiza o saldo atual agora). Ao editar: transferências existentes e lançamentos únicos já ocorridos.
+  const podeInv = f ? !!(f.invest || (f.freq==='once' && !f.balanco && f.inicio<=hoje())) : calSel<=hoje();
+  const tiposDet = (f&&f.invest) ? '<option value="invest">Transfer Invest</option>' : '<option value="receita">Receita (+)</option><option value="despesa">Despesa (−)</option>'+(podeInv?'<option value="invest">Transfer Invest</option>':'');
+  const invHtml = estado.investimentos.length
+    ? `<label for="dinvc">Conta de investimento</label><select id="dinvc">${estado.investimentos.map(i=>`<option value="${i.id}">${esc(i.nome)} · ${cur(i.valor)}</option>`).join('')}</select>
+       <label for="dsent">Sentido</label><select id="dsent"><option value="aporte">Aporte: ${esc(c.nome)} → investimento</option><option value="resgate">Resgate: investimento → ${esc(c.nome)}</option></select>
+       <div class="hint">Registra em ${dataBR(f?f.inicio:calSel)}, atualiza o <b>saldo atual</b> de ${esc(c.nome)} e o valor da conta de investimento.</div>`
+    : '<div class="hint">Cadastre uma conta de investimento na aba Contas primeiro.</div>';
   const form = !calForm ? '<div class="btns"><button class="pri" id="cnew">+ Novo lançamento</button></div>' : `
-    <div class="row"><div><label>Tipo</label><select id="dt"><option value="receita">Receita (+)</option><option value="despesa">Despesa (−)</option></select></div>
+    <div class="row"><div><label>Tipo</label><select id="dt">${tiposDet}</select></div>
     <div><label>Valor (CA$)</label><input id="dv" inputmode="decimal" placeholder="0,00" value="${f?paraTexto(f.valor):''}"></div></div>
-    <label>Descrição</label><input id="dd" maxlength="40" placeholder="Ex.: Salário, Fatura do cartão" value="${f?esc(f.desc):''}">
+    <div id="ddw"><label>Descrição</label><input id="dd" maxlength="40" placeholder="Ex.: Salário, Fatura do cartão" value="${f?esc(f.desc):''}"></div>
+    <div id="dinvw" hidden>${invHtml}</div>
     ${f&&f.freq!=='once'?'<div class="hint">Isso muda todas as repetições. Para mudar data ou frequência, use a aba Lançamentos.</div>':''}
     <div class="btns"><button class="pri" id="dsave">Salvar</button><button id="dcancel">Cancelar</button></div><div class="hint" id="derr" style="color:#f87171"></div>`;
   el.innerHTML=`<div class="card"><h2 style="text-transform:capitalize">${tit}<span class="chip" style="color:${d.passado?'var(--mut)':'var(--acc)'}">${d.passado?'Realizado':'Projeção'}</span></h2>
@@ -847,9 +856,27 @@ function desenharDet(dias,c){
   const q=x=>el.querySelector(x);
   const nb=q('#cnew'); if(nb) nb.onclick=()=>{calForm={id:null};desenharDet(dias,c);};
   if(calForm){
-    q('#dt').value=f?f.tipo:'despesa';
+    q('#dt').value=f?(f.invest?'invest':f.tipo):'despesa';
+    if(f&&f.invest){
+      const si=q('#dinvc'); if(si && estado.investimentos.some(i=>i.id===f.invest.inv)) si.value=f.invest.inv;
+      const se=q('#dsent'); if(se) se.value=f.invest.sentido;
+    }
+    const ajD=()=>{ const inv=q('#dt').value==='invest'; q('#ddw').hidden=inv; q('#dinvw').hidden=!inv; };
+    ajD(); q('#dt').onchange=ajD;
     q('#dcancel').onclick=()=>{calForm=null;desenharDet(dias,c);};
     q('#dsave').onclick=()=>{
+      if(q('#dt').value==='invest'){
+        const sel=q('#dinvc'), inv=sel && estado.investimentos.find(i=>i.id===sel.value), v=r2(paraNumero(q('#dv').value)), sentido=q('#dsent') && q('#dsent').value;
+        if(!inv){q('#derr').textContent='Cadastre uma conta de investimento na aba Contas primeiro.';return;}
+        if(v<=0){q('#derr').textContent='O valor precisa ser maior que zero.';return;}
+        const velho = f && f.invest ? f : null;   // ao editar, o valor antigo volta antes de valer o novo
+        const disp = inv.valor + (velho && velho.invest.inv===inv.id ? (velho.invest.sentido==='aporte' ? -velho.valor : velho.valor) : 0);
+        if(sentido==='resgate' && v>disp){q('#derr').textContent='Essa conta de investimento tem só '+cur(r2(Math.max(0,disp)))+'.';return;}
+        const data = f ? f.inicio : calSel;
+        if(f){ desfazerInvest(f); estado.lancamentos=estado.lancamentos.filter(x=>x.id!==f.id); }   // editar = desfaz o antigo e registra o novo
+        registrarInvest(inv, c.id, sentido, v, ()=>{ calForm=null; desenharCal(); }, data);
+        return;
+      }
       const desc=q('#dd').value.trim(), valor=paraNumero(q('#dv').value), tipo=q('#dt').value;
       if(!desc){q('#derr').textContent='Coloca uma descrição.';return;}
       if(valor<=0){q('#derr').textContent='O valor precisa ser maior que zero.';return;}
