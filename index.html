@@ -106,7 +106,7 @@ label.sw{display:flex;align-items:center;gap:10px;color:var(--tx);margin:14px 0 
   <section id="extras" hidden></section>
 
   <p class="priv" id="priv">🔒 Seus dados ficam só neste navegador (localStorage). Nada é enviado a nenhum servidor.</p>
-  <p class="priv" id="ver">Versão do app: 10 · com Investimentos</p>
+  <p class="priv" id="ver">Versão do app: 11 · com Investimentos</p>
 </main>
 <div id="toast">Salvo ✔</div>
 <div id="modal" hidden></div>
@@ -337,7 +337,7 @@ function desenharInvest(box){
       <label for="iv">Valor investido (CA$)</label><input id="iv" inputmode="decimal" placeholder="0,00">
       <div class="btns"><button class="pri" id="is">Salvar</button><button id="ic">Cancelar</button></div><div class="hint" id="ie" style="color:#f87171"></div>`
       : '<div class="btns"><button id="inw">Nova conta de investimento</button></div>'}
-    <div class="hint">O saldo parado aqui NÃO entra no rebalanceamento, na projeção, no fluxo diário nem na meta de poupança. Só as transferências (⇄) entram: a saída ou a entrada vira lançamento na conta RBC/EQ Bank.</div>`;
+    <div class="hint">O saldo parado aqui NÃO entra no rebalanceamento, na projeção, no fluxo diário nem na meta de poupança. Só as transferências (⇄) entram: a saída ou a entrada vira lançamento e atualiza o saldo atual da conta RBC/EQ Bank.</div>`;
   box.appendChild(d);
   const q=s=>d.querySelector(s);
   if(ed){ q('#in').value=ed.nome; q('#iv').value=paraTexto(ed.valor); }
@@ -368,7 +368,7 @@ function dialogoInvest(inv){
     <label for="tc">Conta principal</label><select id="tc">${estado.contas.map(c=>`<option value="${c.id}">${esc(c.nome)}</option>`).join('')}</select>
     <label for="tv">Valor (CA$)</label><input id="tv" inputmode="decimal" placeholder="0,00">
     <div class="hint" id="te" style="color:#f87171"></div>
-    <div class="hint">Vira um lançamento de hoje na conta principal. Se você já atualizou o saldo atual depois de mover o dinheiro, apague o lançamento ou ajuste o saldo para não contar duas vezes.</div>
+    <div class="hint">Vira um lançamento de hoje na conta principal e o <b>saldo atual</b> dela é atualizado sozinho. Se você já corrigiu o saldo à mão depois de mover o dinheiro, ajuste de novo depois de confirmar.</div>
     <div class="btns"><button class="pri" id="tok">Confirmar</button><button id="tno">Cancelar</button></div></div>`;
   m.hidden=false;
   const q=x=>m.querySelector(x);
@@ -383,7 +383,8 @@ function dialogoInvest(inv){
 }
 function registrarInvest(inv, contaId, sentido, valor, depois){
   const c=contaPorId(contaId), aporte=sentido==='aporte', gid=uid(), d=hoje();
-  estado.lancamentos.push({id:uid(), conta:c.id, tipo:aporte?'despesa':'receita', desc:(aporte?'Aporte · ':'Resgate · ')+inv.nome, freq:'once', inicio:d, valor, invest:{gid, inv:inv.id, sentido}});
+  estado.lancamentos.push({id:uid(), conta:c.id, tipo:aporte?'despesa':'receita', desc:(aporte?'Aporte · ':'Resgate · ')+inv.nome, freq:'once', inicio:d, valor, invest:{gid, inv:inv.id, sentido, aplicado:true}});
+  c.saldo=r2(c.saldo + (aporte?-valor:valor));   // saldo atual da conta principal acompanha a transferência
   inv.valor=r2(inv.valor + (aporte?valor:-valor));
   inv.movs.push({id:gid, data:d, tipo:sentido, valor, conta:c.id});
   salvar(); fecharModal(); (depois||desenharContas)();
@@ -459,7 +460,7 @@ function desenharLanc(){
     <div id="fiw" hidden>${estado.investimentos.length
       ? `<label for="fiv">Conta de investimento</label><select id="fiv">${estado.investimentos.map(i=>`<option value="${i.id}">${esc(i.nome)} · ${cur(i.valor)}</option>`).join('')}</select>
       <label for="fis">Sentido</label><select id="fis"><option value="aporte">Aporte: ${esc(c.nome)} → investimento</option><option value="resgate">Resgate: investimento → ${esc(c.nome)}</option></select>
-      <div class="hint">Vira um lançamento de hoje em ${esc(c.nome)} e atualiza o valor da conta de investimento.</div>`
+      <div class="hint">Vira um lançamento de hoje em ${esc(c.nome)}, atualiza o <b>saldo atual</b> de ${esc(c.nome)} e o valor da conta de investimento.</div>`
       : '<div class="hint">Cadastre uma conta de investimento na aba Contas primeiro.</div>'}</div>
     <div id="fkw" hidden><label>Repetir a cada quantos dias?</label><input id="fk" type="number" min="1" max="365" placeholder="Ex.: 10"></div>
     <div class="btns"><button class="pri" id="fs">Salvar</button>${e?'<button id="fc">Cancelar</button>':''}</div>
@@ -559,7 +560,7 @@ function ocorrenciasBrutas(l,de,ate){
 const r2 = n=>Math.round(n*100)/100;
 function projecaoMes(conta){
   const de=hoje(), ate=fimDoMes(de); let rec=0, desp=0;
-  estado.lancamentos.filter(l=>l.conta===conta.id).forEach(l=>{
+  estado.lancamentos.filter(l=>l.conta===conta.id && !ehAplicado(l)).forEach(l=>{
     const n=ocorrencias(l,de,ate).length;
     if(l.tipo==='receita') rec+=n*l.valor; else desp+=n*l.valor;
   });
@@ -571,7 +572,7 @@ function statusDe(proj,colchao){ return proj<0 ? 'critico' : (proj<colchao ? 'at
    Saldo do dia = saldo atual + todos os lançamentos de hoje até aquele dia (incluindo os do próprio dia). */
 function fluxoDiario(conta){
   const de=hoje(), ate=fimDoMes(de), porDia={};
-  estado.lancamentos.filter(l=>l.conta===conta.id).forEach(l=>ocorrencias(l,de,ate).forEach(d=>{(porDia[d]=porDia[d]||[]).push(l);}));
+  estado.lancamentos.filter(l=>l.conta===conta.id && !ehAplicado(l)).forEach(l=>ocorrencias(l,de,ate).forEach(d=>{(porDia[d]=porDia[d]||[]).push(l);}));
   let saldo=conta.saldo; const dias=[];
   for(let n=dnum(de), f=dnum(ate); n<=f; n++){
     const d=dstr(n), itens=porDia[d]||[];
@@ -612,10 +613,10 @@ function calendarioMes(conta,y,m){
   const ini=y+'-'+p2(m)+'-01', fim=fimDoMes(ini), h=hoje();
   const de=ini<h?ini:h, ate=fim>h?fim:h, porDia={};
   estado.lancamentos.filter(l=>l.conta===conta.id).forEach(l=>ocorrencias(l,de,ate).forEach(d=>{(porDia[d]=porDia[d]||[]).push(l);}));
-  const soma=it=>it.reduce((t,l)=>t+(l.tipo==='receita'?l.valor:-l.valor),0);
+  const soma=(it,semAplicado)=>it.reduce((t,l)=>t+((semAplicado&&ehAplicado(l))?0:(l.tipo==='receita'?l.valor:-l.valor)),0);
   const saldoAt={}; let sd=conta.saldo;
-  for(let n=dnum(h); n<=dnum(ate); n++){ const d=dstr(n); sd+=soma(porDia[d]||[]); saldoAt[d]=r2(sd); }
-  sd=conta.saldo;
+  for(let n=dnum(h); n<=dnum(ate); n++){ const d=dstr(n); sd+=soma(porDia[d]||[],true); saldoAt[d]=r2(sd); }
+  sd=conta.saldo-soma((porDia[h]||[]).filter(ehAplicado));   // o que já foi aplicado hoje não pertence ao fim de ontem
   for(let n=dnum(h)-1; n>=dnum(de); n--){ const d=dstr(n); saldoAt[d]=r2(sd); sd-=soma(porDia[d]||[]); }
   const dias=[];
   for(let n=dnum(ini), f=dnum(fim); n<=f; n++){
@@ -675,10 +676,13 @@ function contaPorId(id){ return estado.contas.find(c=>c.id===id); }
 function curv(n){ return Number.isInteger(n) ? 'CA$ '+n.toLocaleString('pt-BR') : cur(n); }
 /* Transferência = Balanço entre contas OU aporte/resgate de investimento. Não são editáveis e não entram nas somas de receitas/despesas. */
 const ehTransf = l => !!(l && (l.balanco || l.invest));
+/* Aporte/resgate feito pelo app JÁ mexe no saldo atual da conta principal; por isso o lançamento (só histórico) não é somado de novo na projeção e no fluxo. */
+const ehAplicado = l => !!(l && l.invest && l.invest.aplicado);
 const totalInvest = () => r2(estado.investimentos.reduce((t,i)=>t+i.valor,0));   // só visualização
 /* Apagar o lançamento de uma transferência de investimento desfaz o movimento na conta de investimento. */
 function desfazerInvest(l){
   if(!l || !l.invest) return;
+  if(l.invest.aplicado){ const cc=contaPorId(l.conta); if(cc) cc.saldo=r2(cc.saldo + (l.tipo==='despesa' ? l.valor : -l.valor)); }  // devolve o saldo atual
   const inv=estado.investimentos.find(i=>i.id===l.invest.inv); if(!inv) return;
   const m=inv.movs.find(x=>x.id===l.invest.gid); if(!m) return;
   inv.valor=Math.max(0, r2(inv.valor + (m.tipo==='aporte' ? -m.valor : m.valor)));
@@ -817,7 +821,7 @@ function linhaDia(l){
   if(calDel===l.id){
     ops = (l.freq!=='once' && !ehTransf(l))
       ? `<li class="opx"><div class="opc"><button data-a="x1" data-id="${l.id}">Só este dia</button><button class="perigo" data-a="xa" data-id="${l.id}">Todas as repetições</button><button data-a="xc">Cancelar</button></div></li>`
-      : `<li class="opx"><div class="opc"><button class="perigo" data-a="xa" data-id="${l.id}">${l.balanco?'Excluir o Balanço (nas duas contas)':l.invest?'Excluir (desfaz no investimento)':'Excluir'}</button><button data-a="xc">Cancelar</button></div></li>`;
+      : `<li class="opx"><div class="opc"><button class="perigo" data-a="xa" data-id="${l.id}">${l.balanco?'Excluir o Balanço (nas duas contas)':l.invest?'Excluir (desfaz no investimento e no saldo)':'Excluir'}</button><button data-a="xc">Cancelar</button></div></li>`;
   }
   const sub = l.balanco ? 'transferência entre contas' : l.invest ? 'transferência de investimento' : (l.freq==='once' ? 'só neste dia' : 'repete: '+quando(l));
   return `<li><div class="d"><b>${esc(nomeLanc(l))}</b><span>${sub}</span></div><div class="v ${l.tipo}">${l.tipo==='receita'?'+':'−'} ${cur(l.valor)}</div>${ehTransf(l)?'':`<button data-a="ed" data-id="${l.id}" title="Editar">✏️</button>`}<button data-a="del" data-id="${l.id}" title="Excluir">🗑️</button></li>${ops}`;
