@@ -106,7 +106,7 @@ label.sw{display:flex;align-items:center;gap:10px;color:var(--tx);margin:14px 0 
   <section id="extras" hidden></section>
 
   <p class="priv" id="priv">🔒 Seus dados ficam só neste navegador (localStorage). Nada é enviado a nenhum servidor.</p>
-  <p class="priv" id="ver">Versão do app: 12 · com Investimentos</p>
+  <p class="priv" id="ver">Versão do app: 14 · com Investimentos e Faturas</p>
 </main>
 <div id="toast">Salvo ✔</div>
 <div id="modal" hidden></div>
@@ -249,6 +249,102 @@ async function sincronizar(manual){
   }finally{ clearTimeout(cortar); syncVoo = false; atualizarStatusSync(); }
 }
 addEventListener('online', ()=>{ if(sync.pendente && sync.auto && syncConfigurado()) sincronizar(false); });
+
+/* ========== FATURAS DOS CARTÕES (Notion via proxy) ==========
+   Configuração em chave PRÓPRIA do localStorage (balanceador.cartoes): a URL do proxy não vai para o backup.
+   Os lançamentos criados ficam em estado.lancamentos com o marcador fatura:{cartao, comp}. */
+const CHAVE_CART = 'balanceador.cartoes';
+const CARTOES = [{chave:'Tangerine', nome:'Tangerine Card'}, {chave:'Triangle', nome:'Triangle Card'}, {chave:'Walmart', nome:'Walmart Card'}];  // os demais cartões do JSON são ignorados
+function lerCart(){
+  const base = {url:'', contas:{}, cache:[], cacheEm:null, ult:null, aviso:''};
+  try{ const o=JSON.parse(localStorage.getItem(CHAVE_CART)||'{}'); return Object.assign(base, o, {contas:Object.assign({}, o.contas), cache:Array.isArray(o.cache)?o.cache:[]}); }catch(e){ return base; }
+}
+function gravarCart(){ try{ localStorage.setItem(CHAVE_CART, JSON.stringify(cart)); }catch(e){} }
+let cart = lerCart(), cartVoo = false, cartMsg = '';
+const pad2 = n=>String(n).padStart(2,'0');
+const isoDe = d=>d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate());
+function urlCart(){ return cart.url.trim().replace(/\/+$/,'').replace(/\/cartoes$/,''); }
+function contaDoCartao(chave){ return (contaPorId(cart.contas[chave]) || estado.contas[0]).id; }
+/* Períodos: manhã 05:00–11:59, tarde 12:00–17:59, noite 18:00–23:59. De 00:00 a 04:59 não há período (não roda sozinho). */
+function periodoAtual(d){ const h=d.getHours(); return h>=5&&h<12 ? 'manha' : h>=12&&h<18 ? 'tarde' : h>=18 ? 'noite' : null; }
+/* Mês do fechamento = mês corrente. Vence depois do fechamento → mesmo mês; senão → mês seguinte. Dia inexistente → último dia do mês. */
+function competenciaFatura(fecha, vence, agora){
+  let y=agora.getFullYear(), m=agora.getMonth();
+  if(!(vence>fecha)) m++;
+  if(m>11){ m-=12; y++; }
+  const dia=Math.min(vence, new Date(y,m+1,0).getDate());
+  return {data:y+'-'+pad2(m+1)+'-'+pad2(dia), comp:y+'-'+pad2(m+1)};
+}
+function lerListaCartoes(json){
+  if(!Array.isArray(json)) throw new Error('formato');
+  const out=[];
+  CARTOES.forEach(c=>{
+    const alvo=[c.chave, c.nome].map(x=>x.toLowerCase());   // aceita "Walmart" ou "Walmart Card" no JSON
+    const it=json.find(x=>x && alvo.includes(String(x.cartao||'').trim().toLowerCase()));
+    if(!it) return;   // cartão ausente no JSON: ignora sem erro
+    const fatura=Number(it.fatura_atual), fecha=parseInt(it.fecha_dia,10), vence=parseInt(it.vence_dia,10);
+    if(it.fatura_atual==null || !isFinite(fatura) || !(fecha>=1&&fecha<=31) || !(vence>=1&&vence<=31)){ out.push({chave:c.chave, nome:c.nome, invalido:true}); return; }
+    out.push({chave:c.chave, nome:c.nome, fatura:r2(fatura), fecha, vence, atualizado:String(it.atualizado_em||'')});
+  });
+  return out;
+}
+/* Cria ou atualiza (nunca duplica, nunca apaga). Fatura 0 não cria. */
+function aplicarFaturas(lista, agora){
+  const r={criadas:0, atualizadas:0, iguais:0, puladas:0};
+  lista.forEach(c=>{
+    if(c.invalido || !(c.fatura>0)){ r.puladas++; return; }
+    const {data,comp}=competenciaFatura(c.fecha, c.vence, agora);
+    const ex=estado.lancamentos.find(l=>l.fatura && l.fatura.cartao===c.chave && l.fatura.comp===comp);
+    if(ex){ if(r2(ex.valor)!==c.fatura){ ex.valor=c.fatura; r.atualizadas++; } else r.iguais++; return; }
+    estado.lancamentos.push({id:uid(), conta:contaDoCartao(c.chave), tipo:'despesa', desc:'Fatura '+c.nome, freq:'once', inicio:data, valor:c.fatura, fatura:{cartao:c.chave, comp}});
+    r.criadas++;
+  });
+  if(r.criadas || r.atualizadas) salvar();
+  return r;
+}
+function dhBR(iso){ return iso ? new Date(iso).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'}) : ''; }
+function avisoCartHtml(){ return cart.aviso ? `<div class="hint" style="text-align:center">${esc(cart.aviso)}</div>` : ''; }
+function atualizarStatusCart(){
+  const a=document.getElementById('cst'), b=document.getElementById('cmsg'), c=document.getElementById('clst');
+  if(a) a.textContent = cart.url.trim() ? 'Última leitura: '+(cart.cacheEm?dhBR(cart.cacheEm):'nunca')+' · roda ao abrir o app, uma vez de manhã, de tarde e de noite.' : 'Cole a URL do proxy para ativar. O app consulta URL/cartoes.';
+  if(b) b.textContent = cartMsg || cart.aviso;
+  if(c) c.innerHTML = cart.cache.map(x=>{
+    const k=competenciaFatura(x.fecha, x.vence, new Date());
+    return `<div class="kv"><span>${esc(x.nome)}<br><small class="hint">fecha dia ${x.fecha} · vence ${dataBR(k.data)} · sai de ${esc(contaPorId(contaDoCartao(x.chave)).nome)}</small></span><b>${x.fatura>0?cur(x.fatura):'sem fatura'}</b></div>`;
+  }).join('');
+}
+/* Roda ao abrir (e ao voltar para o app) no máximo uma vez por período. Falha: mantém os últimos valores, só avisa. Nunca apaga nada. */
+async function executarFaturas(opt){
+  opt=opt||{}; const agora=opt.agora||new Date();
+  try{
+    if(cartVoo) return;
+    const base=urlCart();
+    if(!base){ if(opt.manual){ cartMsg='Cole a URL do proxy do Notion primeiro.'; atualizarStatusCart(); } return; }
+    const per=periodoAtual(agora), dia=isoDe(agora);
+    if(!opt.manual){
+      if(!per) return;
+      if(cart.ult && cart.ult.dia===dia && cart.ult.periodo===per) return;
+    }
+    cartVoo=true; cartMsg=opt.manual?'Atualizando…':''; atualizarStatusCart();
+    const ctl=new AbortController(), cortar=setTimeout(()=>ctl.abort(), 15000);
+    try{
+      const r=await fetch(base+'/cartoes', {signal:ctl.signal, cache:'no-store', headers:{'Accept':'application/json'}});
+      if(!r.ok) throw new Error('http '+r.status);
+      const lista=lerListaCartoes(await r.json());
+      cart.cache=lista.filter(x=>!x.invalido); cart.cacheEm=agora.toISOString(); cart.aviso='';
+      const res=aplicarFaturas(lista, agora);
+      if(per) cart.ult={dia, periodo:per};
+      cartMsg = opt.manual ? 'Pronto: '+res.criadas+' criada(s), '+res.atualizadas+' atualizada(s), '+res.iguais+' sem mudança.'+(lista.some(x=>x.invalido)?' Algum cartão veio com dados inválidos e foi ignorado.':'') : '';
+      gravarCart();
+      const on=document.querySelector('.tabs button.on');
+      if((res.criadas||res.atualizadas) && on && on.dataset.t!=='extras') TELAS[on.dataset.t]();
+    }catch(e){
+      cart.aviso='Faturas: não consegui ler o proxy do Notion'+(cart.cacheEm?' — usando os últimos valores ('+dhBR(cart.cacheEm)+').':'.');
+      cartMsg=''; gravarCart();
+    }finally{ clearTimeout(cortar); cartVoo=false; atualizarStatusCart(); }
+  }catch(e){ cartVoo=false; }
+}
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) executarFaturas(); });
 
 /* ========== UTILITÁRIOS ========== */
 const fmt = new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -659,7 +755,7 @@ function desenharInicio(){
       <div class="tl" data-i="${i}">${dias.map(d=>`<button class="dia ${d.critico?'crit':''} ${d.data===hoje()?'hoje':''}" data-d="${d.data}"><span>${d.dia}</span>${d.itens.length?'<i></i>':''}</button>`).join('')}</div>
       <div class="hint" id="tli${i}">Toque num dia: vermelho = abaixo do colchão, ponto = tem lançamento.</div>
     </div>`;
-  }).join('') + cardAtalhos();
+  }).join('') + cardAtalhos() + avisoCartHtml();
   ligarBalanco(); ligarFluxo(); ligarAtalhos(); ligarLembrete();
 }
 
@@ -1031,6 +1127,14 @@ function desenharExtras(){
     <div class="btns"><button class="pri" id="sgo">Sincronizar agora</button></div>
     <div class="hint" id="sst"></div>
     <div class="hint" id="smsg"></div></div>
+  <div class="card"><h2>Faturas dos cartões (Notion)</h2>
+    <label for="cu">URL do proxy do Notion</label>
+    <input id="cu" type="url" inputmode="url" placeholder="https://SEU-PROXY-NOTION.exemplo.com" autocomplete="off" autocapitalize="none" spellcheck="false">
+    ${CARTOES.map(c=>`<label for="cc_${c.chave}">Conta de saída · ${c.nome}</label><select id="cc_${c.chave}">${estado.contas.map(k=>`<option value="${k.id}">${esc(k.nome)}</option>`).join('')}</select>`).join('')}
+    <div class="btns"><button class="pri" id="cgo">Atualizar faturas agora</button></div>
+    <div id="clst"></div>
+    <div class="hint" id="cst"></div>
+    <div class="hint" id="cmsg"></div></div>
   <div class="card"><h2>Instalação no celular</h2>
     <div class="btns"><button class="pri" id="vi">Verificar instalação</button></div>
     <div id="vsaida"></div></div>
@@ -1053,6 +1157,11 @@ function desenharExtras(){
   q('#sauto').onchange=e=>{ sync.auto=e.target.checked; gravarSync(); if(sync.auto) agendarSync(); else clearTimeout(syncTimer); };
   q('#sgo').onclick=()=>sincronizar(true);
   atualizarStatusSync();
+  q('#cu').value=cart.url;
+  q('#cu').oninput=e=>{ cart.url=e.target.value; gravarCart(); atualizarStatusCart(); };
+  CARTOES.forEach(c=>{ const sc=q('#cc_'+c.chave); sc.value=contaDoCartao(c.chave); sc.onchange=e=>{ cart.contas[c.chave]=e.target.value; gravarCart(); atualizarStatusCart(); }; });
+  q('#cgo').onclick=()=>executarFaturas({manual:true});
+  atualizarStatusCart();
   q('#bx').onclick=exportarJSON;
   q('#be').onclick=()=>enviarBackupEmail(q('#bmsg'));
   q('#bi').onclick=()=>q('#bf2').click();
@@ -1094,6 +1203,7 @@ document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>mostrarTela(b
 
 desenharInicio();
 atualizarStatusSync();
+setTimeout(()=>executarFaturas(), 1500);   // ao abrir: faturas dos cartões (1x por período)
 if(sync.pendente && sync.auto && syncConfigurado()) setTimeout(()=>sincronizar(false), 2500); // tenta de novo ao abrir
 </script>
 </body>
