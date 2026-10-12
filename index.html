@@ -106,7 +106,7 @@ label.sw{display:flex;align-items:center;gap:10px;color:var(--tx);margin:14px 0 
   <section id="extras" hidden></section>
 
   <p class="priv" id="priv">🔒 Seus dados ficam só neste navegador (localStorage). Nada é enviado a nenhum servidor.</p>
-  <p class="priv" id="ver">Versão do app: 14 · com Investimentos e Faturas</p>
+  <p class="priv" id="ver">Versão do app: 16 · com Investimentos e Faturas</p>
 </main>
 <div id="toast">Salvo ✔</div>
 <div id="modal" hidden></div>
@@ -456,6 +456,65 @@ function desenharInvest(box){
     else{ invDel=id; b.innerHTML='<b class="conf">Excluir?</b>'; setTimeout(()=>{ if(invDel===id){ invDel=null; b.innerHTML='🗑️'; } },3000); }
   });
 }
+/* ===== Aviso das transferências de investimento recorrentes =====
+   Quando uma ocorrência vence, o Início pergunta. Aplicar agora = faz o que a transferência única faz (saldo atual + investimento).
+   Já ajustei à mão = só marca como resolvida. Depois = pergunta de novo na próxima vez. Em todos os casos o dia entra em "excecoes" da série
+   (a série não conta esse dia de novo na projeção) e fica um lançamento único de histórico. Só avisa de ocorrências a partir de invest.desde. */
+let invAdiados = new Set(), invMsg = '';
+function pendentesInvest(){
+  const h=hoje(), out=[]; let mudou=false;
+  estado.lancamentos.forEach(l=>{
+    if(!(l.invest && l.freq!=='once')) return;
+    if(!l.invest.desde){ l.invest.desde=h; mudou=true; }   // criada antes deste aviso: só avisa de agora em diante
+    const de = l.invest.desde > l.inicio ? l.invest.desde : l.inicio;
+    if(de>h) return;
+    ocorrencias(l,de,h).forEach(d=>out.push({l,d}));
+  });
+  if(mudou){ try{ localStorage.setItem(CHAVE, JSON.stringify(estado)); }catch(e){} }
+  return out.sort((a,b)=>a.d.localeCompare(b.d) || a.l.desc.localeCompare(b.l.desc));
+}
+function cardInvestPend(){
+  const lista=pendentesInvest().filter(p=>!invAdiados.has(p.l.id+'|'+p.d));
+  if(!lista.length) return '';
+  const h=hoje();
+  return `<div class="card" style="border-color:#60a5fa"><h2>Transferências de investimento</h2>`
+    + lista.map(({l,d})=>{
+      const c=contaPorId(l.conta), inv=estado.investimentos.find(i=>i.id===l.invest.inv), ap=l.invest.sentido==='aporte', nome=inv?inv.nome:'(conta removida)';
+      const txt = ap ? `Aporte de <b>${cur(l.valor)}</b> de ${esc(c.nome)} para ${esc(nome)}` : `Resgate de <b>${cur(l.valor)}</b> de ${esc(nome)} para ${esc(c.nome)}`;
+      const at=`data-id="${l.id}" data-d="${d}"`;
+      return `<div style="padding:8px 0;border-top:1px solid var(--line)"><div>${txt} <span class="hint">${d===h?'vence hoje':'venceu em '+dataBR(d)}.</span></div>
+        <div class="btns"><button class="pri" data-ip="ap" ${at}>Aplicar agora</button><button data-ip="ja" ${at}>Já ajustei à mão</button><button data-ip="dep" ${at}>Depois</button></div></div>`;
+    }).join('')
+    + (invMsg ? `<div class="hint" style="color:#f87171">${esc(invMsg)}</div>` : '')
+    + `<div class="hint"><b>Aplicar agora</b> atualiza o saldo atual da conta e o valor do investimento. <b>Já ajustei à mão</b> só marca como resolvida. <b>Depois</b> pergunta de novo na próxima vez.</div></div>`;
+}
+function ligarInvestPend(){
+  document.querySelectorAll('#inicio [data-ip]').forEach(b=>b.onclick=()=>{
+    const l=estado.lancamentos.find(x=>x.id===b.dataset.id), d=b.dataset.d, a=b.dataset.ip;
+    if(!l) return;
+    if(a==='dep'){ invAdiados.add(l.id+'|'+d); desenharInicio(); return; }
+    resolverOcorrenciaInvest(l,d,a==='ap');
+  });
+}
+function resolverOcorrenciaInvest(l,d,aplicar){
+  const inv=estado.investimentos.find(i=>i.id===l.invest.inv), sentido=l.invest.sentido;
+  if(aplicar){
+    if(!inv){ invMsg='Essa conta de investimento não existe mais. Use "Já ajustei à mão" ou recrie a conta.'; desenharInicio(); return; }
+    if(sentido==='resgate' && l.valor>inv.valor){ invMsg='Essa conta de investimento tem só '+cur(inv.valor)+'. Nada foi aplicado.'; desenharInicio(); return; }
+  }
+  invMsg='';
+  l.excecoes=(l.excecoes||[]).concat(d);   // a série não conta mais esse dia (evita contar em dobro)
+  if(aplicar) registrarInvest(inv, l.conta, sentido, l.valor, desenharInicio, d);
+  else{
+    estado.lancamentos.push({id:uid(), conta:l.conta, tipo:l.tipo, desc:l.desc, freq:'once', inicio:d, valor:l.valor, invest:{gid:uid(), inv:l.invest.inv, sentido, aplicado:true, manual:true}});
+    salvar(); desenharInicio();
+  }
+}
+document.addEventListener('visibilitychange', ()=>{   // voltou para o app (talvez já em outro dia): atualiza o Início
+  if(document.hidden) return;
+  const on=document.querySelector('.tabs button.on'); if(on && on.dataset.t==='inicio') desenharInicio();
+});
+
 /* Transferência nos dois sentidos. O lado da conta principal vira lançamento de hoje (entra no motor); o lado do investimento só muda o valor da conta e guarda o movimento. */
 function dialogoInvest(inv){
   const m=document.getElementById('modal');
@@ -531,7 +590,7 @@ function quando(x){
 
 function lista(items){
   if(!items.length) return '<div class="hint">Nada aqui ainda.</div>';
-  return '<ul class="ls">'+items.map(x=>`<li><div class="d"><b>${esc(nomeLanc(x))}</b><span>${quando(x)}</span></div><div class="v ${x.tipo}">${x.tipo==='receita'?'+':'−'} ${cur(x.valor)}</div>${ehTransf(x)?'':`<button data-a="ed" data-id="${x.id}" title="Editar">✏️</button>`}<button data-a="del" data-id="${x.id}" title="Excluir">🗑️</button></li>`).join('')+'</ul>';
+  return '<ul class="ls">'+items.map(x=>`<li><div class="d"><b>${esc(nomeLanc(x))}</b><span>${quando(x)}</span></div><div class="v ${x.tipo}">${x.tipo==='receita'?'+':'−'} ${cur(x.valor)}</div>${(x.balanco||(x.invest&&x.freq==='once'))?'':`<button data-a="ed" data-id="${x.id}" title="Editar">✏️</button>`}<button data-a="del" data-id="${x.id}" title="Excluir">🗑️</button></li>`).join('')+'</ul>';
 }
 
 function desenharLanc(){
@@ -545,7 +604,7 @@ function desenharLanc(){
   <div class="seg">${estado.contas.map((x,i)=>`<button data-c="${i}" class="${i===contaSel?'on':''}">${ico(x,20)}${esc(x.nome)}</button>`).join('')}</div>
   <div class="card"><h2>${e?'Editar lançamento':'Novo lançamento'} · ${esc(c.nome)}</h2>
     <div class="row">
-      <div><label>Tipo</label><select id="ft"><option value="receita">Receita (+)</option><option value="despesa">Despesa (−)</option>${e?'':'<option value="invest">Transfer Invest</option>'}</select></div>
+      <div><label>Tipo</label><select id="ft">${(e&&e.invest)?'<option value="invest">Transfer Invest</option>':'<option value="receita">Receita (+)</option><option value="despesa">Despesa (−)</option>'+(e?'':'<option value="invest">Transfer Invest</option>')}</select></div>
       <div id="ffw"><label>Frequência</label><select id="ff">${Object.entries(FREQ).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></div>
     </div>
     <div id="fdw"><label>Descrição</label><input id="fd" maxlength="40" placeholder="Ex.: Salário, Fatura do cartão"></div>
@@ -556,7 +615,7 @@ function desenharLanc(){
     <div id="fiw" hidden>${estado.investimentos.length
       ? `<label for="fiv">Conta de investimento</label><select id="fiv">${estado.investimentos.map(i=>`<option value="${i.id}">${esc(i.nome)} · ${cur(i.valor)}</option>`).join('')}</select>
       <label for="fis">Sentido</label><select id="fis"><option value="aporte">Aporte: ${esc(c.nome)} → investimento</option><option value="resgate">Resgate: investimento → ${esc(c.nome)}</option></select>
-      <div class="hint">Vira um lançamento de hoje em ${esc(c.nome)}, atualiza o <b>saldo atual</b> de ${esc(c.nome)} e o valor da conta de investimento.</div>`
+      <div class="hint" id="fih"></div>`
       : '<div class="hint">Cadastre uma conta de investimento na aba Contas primeiro.</div>'}</div>
     <div id="fkw" hidden><label>Repetir a cada quantos dias?</label><input id="fk" type="number" min="1" max="365" placeholder="Ex.: 10"></div>
     <div class="btns"><button class="pri" id="fs">Salvar</button>${e?'<button id="fc">Cancelar</button>':''}</div>
@@ -568,23 +627,42 @@ function desenharLanc(){
   const q = s=>box.querySelector(s);
   const ft=q('#ft'), ff=q('#ff'), fd=q('#fd'), fv=q('#fv'), fx=q('#fx'), fl=q('#fl'), fk=q('#fk'), fe=q('#fe');
   function ajusta(){
-    const inv = ft.value==='invest';   // Transfer Invest: sem frequência, descrição nem data (sempre hoje)
-    fl.textContent = ff.value==='once' ? 'Data' : 'Começa em';
-    q('#fkw').hidden = inv || ff.value!=='days';
-    q('#ffw').hidden = q('#fdw').hidden = q('#fxw').hidden = inv;
+    const inv = ft.value==='invest', unica = ff.value==='once';   // Transfer Invest: sem descrição; "Uma vez" = hoje, já aplicada; senão = recorrente agendada
+    fl.textContent = unica ? 'Data' : 'Começa em';
+    q('#fkw').hidden = ff.value!=='days';
+    q('#fdw').hidden = inv;
+    q('#fxw').hidden = inv && unica;
     q('#fiw').hidden = !inv;
+    const h=q('#fih'); if(h) h.innerHTML = unica
+      ? `Vira um lançamento de hoje em ${esc(c.nome)}, atualiza o <b>saldo atual</b> de ${esc(c.nome)} e o valor da conta de investimento.`
+      : `Fica agendada como lançamento recorrente em ${esc(c.nome)} (saída no aporte, entrada no resgate): entra na projeção, no fluxo e no calendário em cada data. Ela <b>não</b> muda o saldo atual nem o valor do investimento sozinha — atualize os dois quando acontecer, como nas outras recorrentes.`;
   }
-  if(e){ft.value=e.tipo;ff.value=e.freq;fd.value=e.desc;fv.value=paraTexto(e.valor);fx.value=e.inicio;fk.value=e.cada||'';}
+  if(e){ft.value=e.invest?'invest':e.tipo;ff.value=e.freq;fd.value=e.desc;fv.value=paraTexto(e.valor);fx.value=e.inicio;fk.value=e.cada||'';
+    if(e.invest){ const si=q('#fiv'); if(si && estado.investimentos.some(i=>i.id===e.invest.inv)) si.value=e.invest.inv; const se=q('#fis'); if(se) se.value=e.invest.sentido;
+      [...ff.options].forEach(o=>{ if(o.value==='once') o.remove(); }); } }   // recorrente não vira "única" (a única é aplicada na hora)
   else{ff.value='monthly';fx.value=hoje();}
-  ajusta(); ff.onchange=ajusta; ft.onchange=ajusta;
+  ajusta(); ff.onchange=ajusta;
+  ft.onchange=()=>{ if(ft.value==='invest') ff.value='once'; ajusta(); };   // Transfer Invest começa em "Uma vez" (como antes)
 
   q('#fs').onclick=()=>{
     if(ft.value==='invest'){
       const sel=q('#fiv'), inv=sel && estado.investimentos.find(i=>i.id===sel.value), valor=r2(paraNumero(fv.value)), sentido=q('#fis') && q('#fis').value;
       if(!inv){fe.textContent='Cadastre uma conta de investimento na aba Contas primeiro.';return;}
       if(valor<=0){fe.textContent='O valor precisa ser maior que zero.';return;}
-      if(sentido==='resgate' && valor>inv.valor){fe.textContent='Essa conta de investimento tem só '+cur(inv.valor)+'.';return;}
-      registrarInvest(inv,c.id,sentido,valor,desenharLanc); return;
+      const freqI=ff.value;
+      if(freqI==='once'){
+        if(sentido==='resgate' && valor>inv.valor){fe.textContent='Essa conta de investimento tem só '+cur(inv.valor)+'.';return;}
+        registrarInvest(inv,c.id,sentido,valor,desenharLanc); return;
+      }
+      // Recorrente: lançamento agendado na conta principal (saída no aporte, entrada no resgate). Não mexe no saldo atual nem no investimento sozinho.
+      const inicioI=fx.value, cadaI=parseInt(fk.value,10), ap=sentido==='aporte';
+      if(!inicioI){fe.textContent='Escolhe uma data.';return;}
+      if(freqI==='days' && !(cadaI>=1&&cadaI<=365)){fe.textContent='Diz de quantos em quantos dias (1 a 365).';return;}
+      const dadosI={tipo:ap?'despesa':'receita', desc:(ap?'Aporte · ':'Resgate · ')+inv.nome, valor, freq:freqI, inicio:inicioI};
+      if(freqI==='days') dadosI.cada=cadaI;
+      if(e){ delete e.cada; Object.assign(e,dadosI); e.invest={...e.invest, inv:inv.id, sentido, recorrente:true}; }
+      else estado.lancamentos.push({id:uid(),conta:c.id,...dadosI,invest:{gid:uid(), inv:inv.id, sentido, recorrente:true, desde:hoje()}});
+      editando=null; salvar(); desenharLanc(); return;
     }
     const freq=ff.value, desc=fd.value.trim(), valor=paraNumero(fv.value), inicio=fx.value, cada=parseInt(fk.value,10);
     if(!desc){fe.textContent='Coloca uma descrição.';return;}
@@ -737,7 +815,7 @@ let FLUXO=[];
 function desenharInicio(){
   const box=document.getElementById('inicio');
   const mes=new Date().toLocaleDateString('pt-BR',{month:'long'});
-  box.innerHTML = bannerLembrete() + cardBalanco() + cardPoupanca() + cardResumo() + `<p class="sub">Como cada conta deve terminar ${mes}, contando o que ainda falta entrar e sair (inclusive hoje).</p>` +
+  box.innerHTML = bannerLembrete() + cardInvestPend() + cardBalanco() + cardPoupanca() + cardResumo() + `<p class="sub">Como cada conta deve terminar ${mes}, contando o que ainda falta entrar e sair (inclusive hoje).</p>` +
   estado.contas.map((c,i)=>{
     const dias=FLUXO[i]=fluxoDiario(c), al=alertaCritico(c,dias);
     const p=projecaoMes(c), st=statusDe(p.proj,c.colchao), [rot,cor]=ST[st];
@@ -756,7 +834,7 @@ function desenharInicio(){
       <div class="hint" id="tli${i}">Toque num dia: vermelho = abaixo do colchão, ponto = tem lançamento.</div>
     </div>`;
   }).join('') + cardAtalhos() + avisoCartHtml();
-  ligarBalanco(); ligarFluxo(); ligarAtalhos(); ligarLembrete();
+  ligarBalanco(); ligarFluxo(); ligarAtalhos(); ligarLembrete(); ligarInvestPend();
 }
 
 function ligarFluxo(){
@@ -777,7 +855,7 @@ const ehAplicado = l => !!(l && l.invest && l.invest.aplicado);
 const totalInvest = () => r2(estado.investimentos.reduce((t,i)=>t+i.valor,0));   // só visualização
 /* Apagar o lançamento de uma transferência de investimento desfaz o movimento na conta de investimento. */
 function desfazerInvest(l){
-  if(!l || !l.invest) return;
+  if(!l || !l.invest || l.invest.manual) return;   // manual = só registro (o saldo foi ajustado à mão): nada a devolver
   if(l.invest.aplicado){ const cc=contaPorId(l.conta); if(cc) cc.saldo=r2(cc.saldo + (l.tipo==='despesa' ? l.valor : -l.valor)); }  // devolve o saldo atual
   const inv=estado.investimentos.find(i=>i.id===l.invest.inv); if(!inv) return;
   const m=inv.movs.find(x=>x.id===l.invest.gid); if(!m) return;
@@ -915,12 +993,12 @@ function desenharCal(){
 function linhaDia(l){
   let ops='';
   if(calDel===l.id){
-    ops = (l.freq!=='once' && !ehTransf(l))
+    ops = (l.freq!=='once' && !l.balanco)
       ? `<li class="opx"><div class="opc"><button data-a="x1" data-id="${l.id}">Só este dia</button><button class="perigo" data-a="xa" data-id="${l.id}">Todas as repetições</button><button data-a="xc">Cancelar</button></div></li>`
-      : `<li class="opx"><div class="opc"><button class="perigo" data-a="xa" data-id="${l.id}">${l.balanco?'Excluir o Balanço (nas duas contas)':l.invest?'Excluir (desfaz no investimento e no saldo)':'Excluir'}</button><button data-a="xc">Cancelar</button></div></li>`;
+      : `<li class="opx"><div class="opc"><button class="perigo" data-a="xa" data-id="${l.id}">${l.balanco?'Excluir o Balanço (nas duas contas)':(l.invest&&l.freq==='once'&&!l.invest.manual)?'Excluir (desfaz no investimento e no saldo)':'Excluir'}</button><button data-a="xc">Cancelar</button></div></li>`;
   }
-  const sub = l.balanco ? 'transferência entre contas' : l.invest ? 'transferência de investimento' : (l.freq==='once' ? 'só neste dia' : 'repete: '+quando(l));
-  return `<li><div class="d"><b>${esc(nomeLanc(l))}</b><span>${sub}</span></div><div class="v ${l.tipo}">${l.tipo==='receita'?'+':'−'} ${cur(l.valor)}</div>${l.balanco?'':`<button data-a="ed" data-id="${l.id}" title="Editar">✏️</button>`}<button data-a="del" data-id="${l.id}" title="Excluir">🗑️</button></li>${ops}`;
+  const sub = l.balanco ? 'transferência entre contas' : (l.invest&&l.freq==='once') ? 'transferência de investimento' : (l.freq==='once' ? 'só neste dia' : 'repete: '+quando(l));
+  return `<li><div class="d"><b>${esc(nomeLanc(l))}</b><span>${sub}</span></div><div class="v ${l.tipo}">${l.tipo==='receita'?'+':'−'} ${cur(l.valor)}</div>${(l.balanco||(l.invest&&(l.freq!=='once'||l.invest.manual)))?'':`<button data-a="ed" data-id="${l.id}" title="Editar">✏️</button>`}<button data-a="del" data-id="${l.id}" title="Excluir">🗑️</button></li>${ops}`;
 }
 
 function desenharDet(dias,c){
