@@ -106,7 +106,7 @@ label.sw{display:flex;align-items:center;gap:10px;color:var(--tx);margin:14px 0 
   <section id="extras" hidden></section>
 
   <p class="priv" id="priv">🔒 Seus dados ficam só neste navegador (localStorage). Nada é enviado a nenhum servidor.</p>
-  <p class="priv" id="ver">Versão do app: 16 · com Investimentos e Faturas</p>
+  <p class="priv" id="ver">Versão do app: 17 · saldo inicial + lançamentos</p>
 </main>
 <div id="toast">Salvo ✔</div>
 <div id="modal" hidden></div>
@@ -376,7 +376,7 @@ function desenharContas(){
       <div class="icorow">${ico(c,40)}<button class="mini" id="iu${i}">Trocar ícone</button>${c.icone?`<button class="mini" id="ir${i}">Voltar ao padrão</button>`:''}<input type="file" id="if${i}" accept="image/*" hidden></div>
       <div class="row">
         <div>
-          <label for="s${i}">Saldo atual (CA$)</label>
+          <label for="s${i}">Saldo inicial (CA$)</label>
           <input id="s${i}" inputmode="decimal" value="${paraTexto(c.saldo)}">
         </div>
         <div>
@@ -384,7 +384,7 @@ function desenharContas(){
           <input id="c${i}" inputmode="decimal" value="${paraTexto(c.colchao)}">
         </div>
       </div>
-      <div class="hint">Colchão = o valor que você quer sempre deixar de reserva nesta conta.</div>`;
+      <div class="hint">Saldo inicial = quanto a conta tem <b>hoje</b>. Daqui em diante receitas, despesas e transferências atualizam o saldo sozinhas (o Início mostra o saldo já atualizado). Se o banco divergir, digite o valor real aqui para recomeçar. Colchão = reserva que você quer manter na conta.</div>`;
     box.appendChild(d);
 
     d.querySelector('#n'+i).addEventListener('change', e=>{
@@ -395,7 +395,7 @@ function desenharContas(){
     d.querySelector('#if'+i).onchange=e=>{ const f=e.target.files[0]; if(f) lerIcone(f,u=>{ if(u){ c.icone=u; salvar(); desenharContas(); } }); };
     const ir=d.querySelector('#ir'+i); if(ir) ir.onclick=()=>{ delete c.icone; salvar(); desenharContas(); };
     d.querySelector('#s'+i).addEventListener('change', e=>{
-      c.saldo = paraNumero(e.target.value); marcarConferido();
+      c.saldo = paraNumero(e.target.value); c.desde = hoje(); marcarConferido();
       e.target.value = paraTexto(c.saldo); salvar();
     });
     d.querySelector('#c'+i).addEventListener('change', e=>{
@@ -729,6 +729,33 @@ function ocorrenciasBrutas(l,de,ate){
   return out;
 }
 
+/* SALDO ATUAL = saldo inicial + lançamentos já ocorridos.
+   O valor digitado em Contas é o ponto de partida (c.saldo, valendo no começo do dia c.desde). A cada dia que passa,
+   receitas, despesas e transferências (Balanço) dessa conta são somadas ao saldo sozinhas. Lançamentos de hoje continuam
+   contando como "ainda falta" na projeção e entram no saldo mostrado (saldoHoje) sem serem contados duas vezes.
+   Ficam de fora: Transfer Invest (o app já mexe no saldo na hora, ou pergunta no Início). */
+const semAuto = l => !!(l && l.invest);
+const efeito = l => l.tipo==='receita' ? l.valor : -l.valor;
+function liquidar(){
+  const h=hoje(); let mudou=false;
+  estado.contas.forEach(c=>{
+    if(!c.desde){ c.desde=h; mudou=true; return; }   // conta antiga: o saldo digitado vale a partir de hoje
+    if(c.desde>=h) return;
+    const ate=dstr(dnum(h)-1);
+    let t=0;
+    estado.lancamentos.filter(l=>l.conta===c.id && !semAuto(l)).forEach(l=>{ ocorrencias(l,c.desde,ate).forEach(()=>{ t+=efeito(l); }); });
+    c.saldo=r2(c.saldo+t); c.desde=h; mudou=true;
+  });
+  if(mudou){ try{ localStorage.setItem(CHAVE, JSON.stringify(estado)); agendarSync(); }catch(e){} }
+  return mudou;
+}
+/* Saldo mostrado: inclui o que já aconteceu hoje. */
+function saldoHoje(c){
+  const h=hoje(); let t=0;
+  estado.lancamentos.filter(l=>l.conta===c.id && !semAuto(l)).forEach(l=>{ ocorrencias(l,h,h).forEach(()=>{ t+=efeito(l); }); });
+  return r2(c.saldo+t);
+}
+
 /* Projeção de fim de mês = saldo atual + receitas restantes − despesas restantes.
    "Restantes" = de hoje (inclusive) até o último dia do mês. */
 const r2 = n=>Math.round(n*100)/100;
@@ -813,6 +840,7 @@ const ST = {saudavel:['Saudável','var(--ok)'], atencao:['Atenção','#fbbf24'],
 /* ========== TELA: INÍCIO ========== */
 let FLUXO=[];
 function desenharInicio(){
+  liquidar();
   const box=document.getElementById('inicio');
   const mes=new Date().toLocaleDateString('pt-BR',{month:'long'});
   box.innerHTML = bannerLembrete() + cardInvestPend() + cardBalanco() + cardPoupanca() + cardResumo() + `<p class="sub">Como cada conta deve terminar ${mes}, contando o que ainda falta entrar e sair (inclusive hoje).</p>` +
@@ -823,7 +851,7 @@ function desenharInicio(){
     const dif = p.proj>=c.colchao ? `sobram ${cur(p.proj-c.colchao)} acima do colchão` : `faltam ${cur(c.colchao-p.proj)} para o colchão`;
     return `<div class="card"><h2>${ico(c,22)}${esc(c.nome)}<span class="chip" style="color:${cor}">${rot}</span></h2>
       <div class="row">
-        <div><div class="k">Saldo atual</div><div class="big">${cur(c.saldo)}</div></div>
+        <div><div class="k">Saldo atual</div><div class="big">${cur(saldoHoje(c))}</div></div>
         <div><div class="k">Fim do mês</div><div class="big" style="color:${cor}">${cur(p.proj)}</div></div>
       </div>
       <div class="bar"><i style="width:${pct}%;background:${cor}"></i></div>
@@ -1165,7 +1193,7 @@ function textoRelatorio(){
     let rec=0, desp=0;
     dias.forEach(d=>d.itens.filter(l=>!ehTransf(l)).forEach(l=>{ if(l.tipo==='receita') rec+=l.valor; else desp+=l.valor; }));
     L.push(c.nome.toUpperCase(),
-      '  Saldo atual: '+q(c.saldo)+'   Colchão: '+q(c.colchao),
+      '  Saldo atual: '+q(saldoHoje(c))+'   Colchão: '+q(c.colchao),
       '  Projeção de fim de mês: '+q(p.proj)+' ('+st+')',
       '  Pior dia até o fim do mês: dia '+pior.dia+', com '+q(pior.saldo),
       '  Receitas do mês: '+q(r2(rec))+'   Despesas do mês: '+q(r2(desp))+' (sem Balanços e transferências de investimento)');
@@ -1275,10 +1303,11 @@ const TELAS = {inicio:desenharInicio, contas:desenharContas, lanc:desenharLanc, 
 function mostrarTela(t){
   document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x.dataset.t===t));
   Object.keys(TELAS).forEach(k=>document.getElementById(k).hidden = (k!==t));
-  TELAS[t]();
+  liquidar(); TELAS[t]();
 }
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>mostrarTela(b.dataset.t));
 
+liquidar();
 desenharInicio();
 atualizarStatusSync();
 setTimeout(()=>executarFaturas(), 1500);   // ao abrir: faturas dos cartões (1x por período)
